@@ -22,6 +22,7 @@ interface VerificationModalProps {
   isOpen: boolean;
   plan: SubscriptionPlan | null;
   existingSubmission: VerificationSubmission | null;
+  isReferralFreeTrialEligible?: boolean;
   onClose: () => void;
   onBackToPlans: () => void;
   onSubmitVerification: (submission: VerificationSubmission) => void;
@@ -95,6 +96,7 @@ export function VerificationModal({
   isOpen,
   plan,
   existingSubmission,
+  isReferralFreeTrialEligible = false,
   onClose,
   onBackToPlans,
   onSubmitVerification,
@@ -434,10 +436,15 @@ export function VerificationModal({
   };
 
   const isResubmission = existingSubmission?.status === 'rejected';
+  const isUpgradingFromTrial = Boolean(existingSubmission?.isFreeTrial);
   const isAlreadySubmitted = Boolean(
     existingSubmission &&
+      !isUpgradingFromTrial &&
       (existingSubmission.status === 'pending_review' ||
         existingSubmission.status === 'active')
+  );
+  const skipPaymentForTrial = Boolean(
+    isReferralFreeTrialEligible && !isUpgradingFromTrial && proofOfPaymentDocuments.length === 0
   );
 
   const handleSubmit = () => {
@@ -445,7 +452,7 @@ export function VerificationModal({
       !plan ||
       !selfieDataUrl ||
       idDocuments.length === 0 ||
-      proofOfPaymentDocuments.length === 0 ||
+      (!skipPaymentForTrial && proofOfPaymentDocuments.length === 0) ||
       isAlreadySubmitted
     ) {
       return;
@@ -455,13 +462,21 @@ export function VerificationModal({
     stopCameraStream();
 
     setWasResubmissionOnSubmit(isResubmission);
+    const nowTs = Date.now();
     const submission: VerificationSubmission = {
       plan,
       selfieDataUrl,
       idDocuments,
       proofOfPaymentDocuments,
-      submittedAt: Date.now(),
+      submittedAt: nowTs,
       status: 'pending_review',
+      ...(skipPaymentForTrial
+        ? {
+            isFreeTrial: true,
+            trialStartedAt: nowTs,
+            trialExpiresAt: nowTs + 30 * 24 * 60 * 60 * 1000,
+          }
+        : {}),
     };
     onSubmitVerification(submission);
     setSubmittedConfirmation(true);
@@ -473,7 +488,7 @@ export function VerificationModal({
   const canSubmit =
     Boolean(selfieDataUrl) &&
     idDocuments.length > 0 &&
-    proofOfPaymentDocuments.length > 0 &&
+    (skipPaymentForTrial || proofOfPaymentDocuments.length > 0) &&
     !isAlreadySubmitted;
 
   return (
@@ -884,18 +899,26 @@ export function VerificationModal({
                     </span>
                     <div>
                       <h3 className="text-xs font-black text-slate-950 uppercase tracking-wide">
-                        Proof of Payment
+                        Proof of Payment {isReferralFreeTrialEligible && !isUpgradingFromTrial && (
+                          <span className="ml-1 text-emerald-600">(Optional • 30-Day Free Trial)</span>
+                        )}
                       </h3>
                       <p className="text-[11px] text-slate-500 font-medium">
-                        Upload bank transfer slip, EFT receipt, or payment screenshot
+                        {isReferralFreeTrialEligible && !isUpgradingFromTrial
+                          ? '30-Day Referral Free Trial unlocked (R0 today) — upload EFT slip only if paying early'
+                          : 'Upload bank transfer slip, EFT receipt, or payment screenshot'}
                       </p>
                     </div>
                   </div>
-                  {proofOfPaymentDocuments.length > 0 && (
+                  {proofOfPaymentDocuments.length > 0 ? (
                     <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black flex items-center gap-1">
                       <Check className="w-3 h-3 stroke-[3px]" /> {proofOfPaymentDocuments.length} Added
                     </span>
-                  )}
+                  ) : isReferralFreeTrialEligible && !isUpgradingFromTrial ? (
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black">
+                      Free Trial
+                    </span>
+                  ) : null}
                 </div>
 
                 <input

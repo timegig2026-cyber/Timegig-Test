@@ -402,9 +402,11 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
           </div>
 
           {invitedBy && (
-            <div className="bg-blue-50 border border-blue-200 rounded-2xl px-3.5 py-2.5 flex items-center gap-2 text-xs font-bold text-blue-900">
-              <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
-              <span>Invited via User Sub code: <strong>{invitedBy}</strong></span>
+            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-3.5 py-2.5 flex items-center gap-2 text-xs font-bold text-emerald-950">
+              <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>
+                Invited via code <strong>{invitedBy}</strong> • <strong>30-Day Free Trial</strong> unlocked on signup!
+              </span>
             </div>
           )}
 

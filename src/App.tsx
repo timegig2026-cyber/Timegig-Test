@@ -116,6 +116,8 @@ const MAP_TILE_STORAGE_KEY = 'timegig_map_tile_v1';
 const LAST_LOCATION_STORAGE_KEY = 'timegig_last_location_v1';
 const MAIN_ADMIN_EMAIL = 'timegig2026@gmail.com';
 const LOGO_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000; // Once a month (30 days)
+const FREE_TRIAL_DAYS = 30;
+const FREE_TRIAL_DURATION_MS = FREE_TRIAL_DAYS * 24 * 60 * 60 * 1000;
 const EMPTY_PINS: SavedPin[] = [];
 const EMPTY_TRAIL: Array<[number, number]> = [];
 const noopMapAction = () => {};
@@ -332,6 +334,7 @@ export default function App() {
   const [verificationSubmission, setVerificationSubmission] = useState<VerificationSubmission | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
   const [pendingPlanForVerification, setPendingPlanForVerification] = useState<SubscriptionPlan | null>(null);
+  const [isActivatingFreeTrial, setIsActivatingFreeTrial] = useState(false);
   const [showShopModal, setShowShopModal] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [showPhoneMenu, setShowPhoneMenu] = useState(false);
@@ -499,9 +502,28 @@ export default function App() {
   const isMainAdminAccount = Boolean(
     authUser?.email && authUser.email.trim().toLowerCase() === MAIN_ADMIN_EMAIL
   );
-  const accountStatus: AccountStatus = verificationSubmission?.status || 'unactive';
+  const isFreeTrialSubmission = Boolean(verificationSubmission?.isFreeTrial);
+  const trialExpiresAt = verificationSubmission?.trialExpiresAt;
+  const isFreeTrialExpired = Boolean(
+    isFreeTrialSubmission &&
+      typeof trialExpiresAt === 'number' &&
+      Date.now() >= trialExpiresAt
+  );
+  const isFreeTrialActive = Boolean(
+    isFreeTrialSubmission &&
+      verificationSubmission?.status === 'active' &&
+      !isFreeTrialExpired
+  );
+  const trialDaysRemaining =
+    isFreeTrialActive && typeof trialExpiresAt === 'number'
+      ? Math.max(1, Math.ceil((trialExpiresAt - Date.now()) / (24 * 60 * 60 * 1000)))
+      : 0;
+  const accountStatus: AccountStatus = isFreeTrialExpired
+    ? 'unactive'
+    : verificationSubmission?.status || 'unactive';
   const hasSubmittedSubscription = Boolean(
     verificationSubmission &&
+      !isFreeTrialExpired &&
       (verificationSubmission.status === 'pending_review' ||
         verificationSubmission.status === 'active')
   );
@@ -601,6 +623,20 @@ export default function App() {
   const [showSelfieLogoModal, setShowSelfieLogoModal] = useState(false);
   const lastGeocodedCoordsRef = useRef<string>('');
 
+  const effectiveReferralCode = (
+    userProfile.invitedBy ||
+    verificationSubmission?.invitedBy ||
+    invitedByCode ||
+    ''
+  ).trim();
+  const isReferralEligibleForFreeTrial = Boolean(
+    authUser &&
+      !isMainAdminAccount &&
+      effectiveReferralCode.length >= 4 &&
+      !hasSubmittedSubscription &&
+      !isFreeTrialSubmission
+  );
+
   const activeInviteCode =
     userProfile.inviteCode ||
     (authUser ? `TG${authUser.uid.slice(0, 8).toUpperCase()}` : 'TIMEGIG1');
@@ -622,20 +658,22 @@ export default function App() {
       for (const r of userSubReferrals) {
         if (Boolean(r.invitedBy) && r.invitedBy === activeInviteCode) {
           const existing = map.get(r.uid);
-          const docCount = r.paymentDocCount ?? (r.status === 'approved' ? 1 : 0);
+          const docCount = r.paymentDocCount ?? (r.status === 'approved' && !r.isFreeTrial ? 1 : 0);
           map.set(r.uid, {
             referralUid: r.uid,
             referrerUid: authUser?.uid || '',
             invitedBy: r.invitedBy,
             referralName: r.applicantName,
             plan: r.plan,
-            subscriptionAmount: getSubscriptionAmount(r.plan),
-            profitAmount: getReferralProfitAmount(r.plan),
+            subscriptionAmount: r.isFreeTrial ? 0 : getSubscriptionAmount(r.plan),
+            profitAmount: r.isFreeTrial ? 0 : getReferralProfitAmount(r.plan),
             paymentDocCount: existing ? (r.paymentDocCount ?? existing.paymentDocCount) : docCount,
             hasProofOfPayment: existing ? existing.hasProofOfPayment : docCount > 0,
             status: r.status,
             submittedAt: r.submittedAt,
             creditedAt: existing?.creditedAt,
+            isFreeTrial: Boolean(r.isFreeTrial && !existing),
+            trialExpiresAt: r.trialExpiresAt,
           });
         }
       }
@@ -644,7 +682,7 @@ export default function App() {
   }, [tenantReferralProfits, canReviewReferrals, userSubReferrals, activeInviteCode, authUser?.uid]);
 
   const approvedMyReferrals = useMemo(
-    () => myReferrerEntries.filter((p) => p.status === 'approved'),
+    () => myReferrerEntries.filter((p) => p.status === 'approved' && !p.isFreeTrial),
     [myReferrerEntries]
   );
   const approvedMyUserSubs = useMemo(
@@ -1007,11 +1045,15 @@ export default function App() {
             docNames?: string[];
             paymentDocNames?: string[];
             rejectionReason?: string;
+            isFreeTrial?: boolean;
+            trialStartedAt?: number;
+            trialExpiresAt?: number;
+            invitedBy?: string;
           };
           const syncedSub: VerificationSubmission = {
             plan: subData.plan,
             selfieDataUrl: '',
-            idDocuments: (subData.docNames || ['Verified ID']).map((name, idx) => ({
+            idDocuments: (subData.docNames || (subData.isFreeTrial ? [] : ['Verified ID'])).map((name, idx) => ({
               id: `synced-${idx}`,
               name,
               size: 0,
@@ -1028,6 +1070,16 @@ export default function App() {
             ...(subData.status === 'rejected' && subData.rejectionReason
               ? { rejectionReason: subData.rejectionReason }
               : {}),
+            ...(subData.isFreeTrial
+              ? {
+                  isFreeTrial: true,
+                  trialStartedAt: subData.trialStartedAt || subData.submittedAt || Date.now(),
+                  trialExpiresAt:
+                    subData.trialExpiresAt ||
+                    (subData.trialStartedAt || subData.submittedAt || Date.now()) + FREE_TRIAL_DURATION_MS,
+                  ...(subData.invitedBy ? { invitedBy: subData.invitedBy } : {}),
+                }
+              : {}),
           };
           setVerificationSubmission(syncedSub);
           setSelectedPlan(syncedSub.plan);
@@ -1041,8 +1093,9 @@ export default function App() {
           if (!isAdminEmail && (subData.plan === 'user' || subData.plan === 'tenant') && subData.status === 'pending_review') {
             const refDocRef = doc(db, 'userSubReferrals', user.uid);
             const fallbackName = (resolvedProfileName || user.email?.split('@')[0] || 'User Applicant').slice(0, 160);
-            const fallbackPaymentCount = Math.min(20, Math.max(1, (subData.paymentDocNames || []).length || 1));
+            const fallbackPaymentCount = (subData.paymentDocNames || []).length;
             const fallbackSubmittedAt = Math.floor(subData.submittedAt || Date.now());
+            const isSubFreeTrial = Boolean(subData.isFreeTrial && resolvedProfileInvitedBy.trim().length >= 4);
             getDoc(refDocRef)
               .then((refSnap) => {
                 if (!refSnap.exists()) {
@@ -1063,6 +1116,16 @@ export default function App() {
                           paymentDocNames: subData.paymentDocNames.slice(0, 20),
                         }
                       : {}),
+                    ...(isSubFreeTrial
+                      ? {
+                          isFreeTrial: true,
+                          trialStartedAt: Math.floor(subData.trialStartedAt || fallbackSubmittedAt),
+                          trialExpiresAt: Math.floor(
+                            subData.trialExpiresAt ||
+                              (subData.trialStartedAt || fallbackSubmittedAt) + FREE_TRIAL_DURATION_MS
+                          ),
+                        }
+                      : {}),
                     hasSelfie: true,
                     submittedAt: fallbackSubmittedAt,
                     createdAt: serverTimestamp(),
@@ -1072,7 +1135,7 @@ export default function App() {
               })
               .then(() => {
                 const cleanCode = resolvedProfileInvitedBy.trim().slice(0, 32);
-                if (cleanCode.length < 4) return;
+                if (cleanCode.length < 4 || isSubFreeTrial || fallbackPaymentCount === 0) return;
                 return Promise.all([
                   getDoc(doc(db, 'invites', cleanCode)),
                   getDoc(doc(db, 'tenantReferralProfits', user.uid)),
@@ -1088,7 +1151,7 @@ export default function App() {
                     plan: subData.plan,
                     subscriptionAmount: getSubscriptionAmount(subData.plan),
                     profitAmount: getReferralProfitAmount(subData.plan),
-                    paymentDocCount: fallbackPaymentCount,
+                    paymentDocCount: Math.min(20, fallbackPaymentCount),
                     hasProofOfPayment: true,
                     status: 'pending_review',
                     submittedAt: fallbackSubmittedAt,
@@ -1123,11 +1186,16 @@ export default function App() {
               });
           }
 
-          if (syncedSub.plan === 'tenant' && syncedSub.status === 'active') {
+          const isSyncedTrialExpired = Boolean(
+            syncedSub.isFreeTrial &&
+              typeof syncedSub.trialExpiresAt === 'number' &&
+              Date.now() >= syncedSub.trialExpiresAt
+          );
+          if (syncedSub.plan === 'tenant' && syncedSub.status === 'active' && !isSyncedTrialExpired) {
             setViewMode((prev) => (prev === 'profile' ? 'tenant' : prev));
-          } else if (syncedSub.plan === 'user' && syncedSub.status === 'active') {
+          } else if (syncedSub.plan === 'user' && syncedSub.status === 'active' && !isSyncedTrialExpired) {
             setViewMode((prev) => (prev === 'tenant' ? 'profile' : prev));
-          } else if (syncedSub.status !== 'active') {
+          } else if (syncedSub.status !== 'active' || isSyncedTrialExpired) {
             setViewMode((prev) => (prev === 'tenant' || prev === 'profile' ? 'map' : prev));
           }
           try {
@@ -1189,6 +1257,9 @@ export default function App() {
             previousRejectionReason:
               typeof d.previousRejectionReason === 'string' ? d.previousRejectionReason : undefined,
             resubmittedAt: typeof d.resubmittedAt === 'number' ? d.resubmittedAt : undefined,
+            isFreeTrial: Boolean(d.isFreeTrial),
+            trialStartedAt: typeof d.trialStartedAt === 'number' ? d.trialStartedAt : undefined,
+            trialExpiresAt: typeof d.trialExpiresAt === 'number' ? d.trialExpiresAt : undefined,
           };
         });
 
@@ -1254,6 +1325,9 @@ export default function App() {
                     ? d.previousRejectionReason
                     : undefined,
                 resubmittedAt: typeof d.resubmittedAt === 'number' ? d.resubmittedAt : undefined,
+                isFreeTrial: Boolean(d.isFreeTrial),
+                trialStartedAt: typeof d.trialStartedAt === 'number' ? d.trialStartedAt : undefined,
+                trialExpiresAt: typeof d.trialExpiresAt === 'number' ? d.trialExpiresAt : undefined,
               };
             }
           }
@@ -2575,8 +2649,8 @@ export default function App() {
       }
     }
 
-    // Sync referrer tenant proof-of-payment profit ledger on approval or rejection
-    if (item.invitedBy) {
+    // Sync referrer tenant proof-of-payment profit ledger on approval or rejection (skip unpaying 30-day free trials)
+    if (item.invitedBy && !item.isFreeTrial) {
       const cleanInvitedCode = item.invitedBy.trim().slice(0, 32);
       const profitPath = `tenantReferralProfits/${item.uid}`;
       const profitRef = doc(db, 'tenantReferralProfits', item.uid);
@@ -2719,20 +2793,143 @@ export default function App() {
     }
   };
 
+  const handleActivateReferralFreeTrial = async () => {
+    if (!authUser || isMainAdminAccount || !isReferralEligibleForFreeTrial || isActivatingFreeTrial) {
+      return;
+    }
+    const cleanCode = effectiveReferralCode.slice(0, 32);
+    if (!/^[a-zA-Z0-9_-]{4,32}$/.test(cleanCode)) {
+      return;
+    }
+
+    setIsActivatingFreeTrial(true);
+    soundEngine.playFeatureClick();
+
+    const nowTs = Math.floor(Date.now());
+    const expiresAt = nowTs + FREE_TRIAL_DURATION_MS;
+    const trialSubmission: VerificationSubmission = {
+      plan: 'user',
+      selfieDataUrl: '',
+      idDocuments: [],
+      proofOfPaymentDocuments: [],
+      submittedAt: nowTs,
+      status: 'active',
+      isFreeTrial: true,
+      trialStartedAt: nowTs,
+      trialExpiresAt: expiresAt,
+      invitedBy: cleanCode,
+    };
+
+    try {
+      const subPath = `users/${authUser.uid}/private/subscription`;
+      const subDocRef = doc(db, 'users', authUser.uid, 'private', 'subscription');
+      try {
+        const existingSubSnap = await getDoc(subDocRef);
+        if (!existingSubSnap.exists()) {
+          await setDoc(subDocRef, {
+            uid: authUser.uid,
+            plan: 'user',
+            status: 'active',
+            submittedAt: nowTs,
+            docCount: 0,
+            docNames: [],
+            hasSelfie: false,
+            isFreeTrial: true,
+            trialStartedAt: nowTs,
+            trialExpiresAt: expiresAt,
+            invitedBy: cleanCode,
+            createdAt: serverTimestamp(),
+          });
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, subPath);
+        return;
+      }
+
+      const referralPath = `userSubReferrals/${authUser.uid}`;
+      const applicantName =
+        [userProfile.firstName, userProfile.lastName].filter(Boolean).join(' ').trim() ||
+        authUser.displayName?.trim() ||
+        authUser.email?.split('@')[0] ||
+        'New Referral';
+      const refDoc = doc(db, 'userSubReferrals', authUser.uid);
+      try {
+        const refSnap = await getDoc(refDoc);
+        if (!refSnap.exists()) {
+          await setDoc(refDoc, {
+            uid: authUser.uid,
+            applicantName: applicantName.slice(0, 160),
+            applicantEmail: (userProfile.email || authUser.email || '').slice(0, 160),
+            contactInfo: (userProfile.contactInfo || 'Not provided').slice(0, 80),
+            locationName: (userProfile.locationName || 'Location pending').slice(0, 200),
+            invitedBy: cleanCode,
+            plan: 'user',
+            status: 'approved',
+            docCount: 0,
+            docNames: [],
+            hasSelfie: false,
+            isFreeTrial: true,
+            trialStartedAt: nowTs,
+            trialExpiresAt: expiresAt,
+            submittedAt: nowTs,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, referralPath);
+      }
+
+      setVerificationSubmission(trialSubmission);
+      setSelectedPlan('user');
+      setRequiresSubscriptionFirst(false);
+      setShowSignupCongratsModal(false);
+      setShowShopModal(false);
+      try {
+        localStorage.removeItem(`timegig_needs_sub_${authUser.uid}`);
+        localStorage.setItem(getVerificationStorageKey(authUser.uid), JSON.stringify(trialSubmission));
+      } catch {
+        // Ignore storage error
+      }
+      soundEngine.playSuccessChime();
+    } finally {
+      setIsActivatingFreeTrial(false);
+    }
+  };
+
   const handleChooseSubscriptionPlan = (plan: SubscriptionPlan) => {
-    if (hasSubmittedSubscription) return;
+    if (hasSubmittedSubscription && !isFreeTrialActive) return;
     setPendingPlanForVerification(plan);
     setShowShopModal(false);
     setShowVerificationModal(true);
   };
 
   const handleCompleteVerification = async (submission: VerificationSubmission) => {
-    if (hasSubmittedSubscription) return;
+    if (hasSubmittedSubscription && !isFreeTrialActive) return;
     soundEngine.playNewSubmissionAlert();
+    const resolvedInvitedCode = (userProfile.invitedBy || invitedByCode || '').trim().slice(0, 32);
+    const isTrialSubmission = Boolean(
+      submission.isFreeTrial &&
+        resolvedInvitedCode.length >= 4 &&
+        (!submission.proofOfPaymentDocuments || submission.proofOfPaymentDocuments.length === 0)
+    );
+    const nowTs = Math.floor(submission.submittedAt || Date.now());
     const cleanedSubmission: VerificationSubmission = {
       ...submission,
       status: 'pending_review',
       rejectionReason: undefined,
+      ...(isTrialSubmission
+        ? {
+            isFreeTrial: true,
+            trialStartedAt: Math.floor(submission.trialStartedAt || nowTs),
+            trialExpiresAt: Math.floor(submission.trialExpiresAt || nowTs + FREE_TRIAL_DURATION_MS),
+            invitedBy: resolvedInvitedCode,
+          }
+        : {
+            isFreeTrial: undefined,
+            trialStartedAt: undefined,
+            trialExpiresAt: undefined,
+          }),
     };
     setVerificationSubmission(cleanedSubmission);
     setSelectedPlan(cleanedSubmission.plan);
@@ -2763,7 +2960,7 @@ export default function App() {
       }
     }
 
-    // Persist subscription submission or resubmission in Firestore when signed in
+    // Persist subscription submission, upgrade from free trial, or resubmission in Firestore when signed in
     if (authUser) {
       const subPath = `users/${authUser.uid}/private/subscription`;
       const trimmedDocNames = cleanedSubmission.idDocuments
@@ -2790,6 +2987,14 @@ export default function App() {
             ...(safePaymentCount > 0
               ? { paymentDocCount: safePaymentCount, paymentDocNames: trimmedPaymentNames }
               : {}),
+            ...(isTrialSubmission
+              ? {
+                  isFreeTrial: true,
+                  trialStartedAt: cleanedSubmission.trialStartedAt,
+                  trialExpiresAt: cleanedSubmission.trialExpiresAt,
+                  invitedBy: resolvedInvitedCode,
+                }
+              : {}),
             hasSelfie: true,
             createdAt: serverTimestamp(),
           });
@@ -2805,6 +3010,9 @@ export default function App() {
               : { paymentDocCount: deleteField(), paymentDocNames: deleteField() }),
             hasSelfie: true,
             rejectionReason: deleteField(),
+            isFreeTrial: deleteField(),
+            trialStartedAt: deleteField(),
+            trialExpiresAt: deleteField(),
           });
         }
       } catch (err) {
@@ -2867,6 +3075,7 @@ export default function App() {
         });
 
         let isRejectedResubmission = false;
+        let isFreeTrialUpgrade = false;
         let prevResubmittedCount = 0;
         let prevRejectionReason: string | undefined;
         try {
@@ -2878,13 +3087,20 @@ export default function App() {
               applicantEmail: (userProfile.email || authUser.email || '').slice(0, 160),
               contactInfo: (userProfile.contactInfo || 'Not provided').slice(0, 80),
               locationName: (userProfile.locationName || 'Location pending').slice(0, 200),
-              invitedBy: (userProfile.invitedBy || invitedByCode || '').slice(0, 32),
+              invitedBy: resolvedInvitedCode,
               plan: cleanedSubmission.plan,
               status: 'pending_review',
               docCount: safeDocCount,
               docNames: trimmedDocNames,
               ...(safePaymentCount > 0
                 ? { paymentDocCount: safePaymentCount, paymentDocNames: trimmedPaymentNames }
+                : {}),
+              ...(isTrialSubmission
+                ? {
+                    isFreeTrial: true,
+                    trialStartedAt: cleanedSubmission.trialStartedAt,
+                    trialExpiresAt: cleanedSubmission.trialExpiresAt,
+                  }
                 : {}),
               hasSelfie: true,
               submittedAt: Math.floor(cleanedSubmission.submittedAt),
@@ -2896,8 +3112,10 @@ export default function App() {
               status?: string;
               resubmittedCount?: number;
               rejectionReason?: string;
+              isFreeTrial?: boolean;
             };
             isRejectedResubmission = existingRefData.status === 'rejected';
+            isFreeTrialUpgrade = Boolean(existingRefData.isFreeTrial) && !isTrialSubmission;
             prevResubmittedCount =
               typeof existingRefData.resubmittedCount === 'number'
                 ? existingRefData.resubmittedCount
@@ -2912,8 +3130,8 @@ export default function App() {
           handleFirestoreError(err, OperationType.WRITE, referralPath);
         }
 
-        // If resubmitting after rejection, replace old files BEFORE transitioning parent status back to pending_review
-        if (isRejectedResubmission) {
+        // If resubmitting after rejection or upgrading from trial, replace old files BEFORE transitioning parent status back to pending_review
+        if (isRejectedResubmission || isFreeTrialUpgrade) {
           const filesCollectionPath = `userSubReferrals/${authUser.uid}/files`;
           try {
             const existingFilesSnap = await getDocs(collection(db, 'userSubReferrals', authUser.uid, 'files'));
@@ -2971,6 +3189,37 @@ export default function App() {
               reviewedBy: deleteField(),
               reviewedAt: deleteField(),
               rejectionReason: deleteField(),
+              isFreeTrial: deleteField(),
+              trialStartedAt: deleteField(),
+              trialExpiresAt: deleteField(),
+              updatedAt: serverTimestamp(),
+            });
+          } catch (err) {
+            handleFirestoreError(err, OperationType.UPDATE, referralPath);
+          }
+        } else if (isFreeTrialUpgrade) {
+          const submittedTs = Math.floor(cleanedSubmission.submittedAt);
+          try {
+            await updateDoc(refDoc, {
+              applicantName: applicantName.slice(0, 160),
+              applicantEmail: (userProfile.email || authUser.email || '').slice(0, 160),
+              contactInfo: (userProfile.contactInfo || 'Not provided').slice(0, 80),
+              locationName: (userProfile.locationName || 'Location pending').slice(0, 200),
+              plan: cleanedSubmission.plan,
+              status: 'pending_review',
+              docCount: safeDocCount,
+              docNames: trimmedDocNames,
+              ...(safePaymentCount > 0
+                ? { paymentDocCount: safePaymentCount, paymentDocNames: trimmedPaymentNames }
+                : { paymentDocCount: deleteField(), paymentDocNames: deleteField() }),
+              hasSelfie: true,
+              submittedAt: submittedTs,
+              reviewedBy: deleteField(),
+              reviewedAt: deleteField(),
+              rejectionReason: deleteField(),
+              isFreeTrial: deleteField(),
+              trialStartedAt: deleteField(),
+              trialExpiresAt: deleteField(),
               updatedAt: serverTimestamp(),
             });
           } catch (err) {
@@ -2978,9 +3227,8 @@ export default function App() {
           }
         }
 
-        // Record or update referrer tenant's proof-of-payment subscription profit entry
-        const resolvedInvitedCode = (userProfile.invitedBy || invitedByCode || '').trim().slice(0, 32);
-        if (resolvedInvitedCode.length >= 4 && safePaymentCount > 0) {
+        // Record or update referrer tenant's proof-of-payment subscription profit entry (only for paid submissions)
+        if (resolvedInvitedCode.length >= 4 && safePaymentCount > 0 && !isTrialSubmission) {
           const profitPath = `tenantReferralProfits/${authUser.uid}`;
           const profitRef = doc(db, 'tenantReferralProfits', authUser.uid);
           const submittedTs = Math.floor(cleanedSubmission.submittedAt);
@@ -3283,7 +3531,8 @@ export default function App() {
             : isDirectReferral
             ? 'Your Referral'
             : 'Approved by You';
-        const docCount = r.paymentDocCount ?? (r.status === 'approved' ? 1 : 0);
+        const docCount = r.paymentDocCount ?? (r.status === 'approved' && !r.isFreeTrial ? 1 : 0);
+        const isTrialEntry = Boolean(r.isFreeTrial && !existingProfit);
         if (!existingProfit) {
           profitMap.set(r.uid, {
             referralUid: r.uid,
@@ -3291,21 +3540,25 @@ export default function App() {
             invitedBy: r.invitedBy,
             referralName: r.applicantName,
             plan: r.plan,
-            subscriptionAmount: getSubscriptionAmount(r.plan),
-            profitAmount: getReferralProfitAmount(r.plan),
+            subscriptionAmount: isTrialEntry ? 0 : getSubscriptionAmount(r.plan),
+            profitAmount: isTrialEntry ? 0 : getReferralProfitAmount(r.plan),
             paymentDocCount: docCount,
             hasProofOfPayment: docCount > 0,
             status: r.status,
             submittedAt: r.submittedAt,
+            isFreeTrial: isTrialEntry,
+            trialExpiresAt: r.trialExpiresAt,
             sourceLabel: computedSource,
           });
         } else {
           profitMap.set(r.uid, {
             ...existingProfit,
-            subscriptionAmount: getSubscriptionAmount(r.plan),
-            profitAmount: getReferralProfitAmount(r.plan),
+            subscriptionAmount: r.isFreeTrial ? 0 : getSubscriptionAmount(r.plan),
+            profitAmount: r.isFreeTrial ? 0 : getReferralProfitAmount(r.plan),
             status: r.status,
             paymentDocCount: r.paymentDocCount ?? existingProfit.paymentDocCount,
+            isFreeTrial: Boolean(r.isFreeTrial),
+            trialExpiresAt: r.trialExpiresAt,
             sourceLabel: computedSource,
           });
         }
@@ -3315,7 +3568,7 @@ export default function App() {
     const myNetworkProfits = Array.from(profitMap.values()).sort(
       (a, b) => b.submittedAt - a.submittedAt
     );
-    const approvedProfits = myNetworkProfits.filter((p) => p.status === 'approved');
+    const approvedProfits = myNetworkProfits.filter((p) => p.status === 'approved' && !p.isFreeTrial);
     const pendingProofProfits = myNetworkProfits.filter((p) => p.status === 'pending_review');
 
     const activeNetworkTenants = approvedProfits.filter((p) => p.plan === 'tenant');
@@ -3605,6 +3858,11 @@ export default function App() {
                                 {member.sourceLabel}
                               </span>
                             )}
+                            {member.isFreeTrial && (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 text-[9px] font-black">
+                                30-Day Free Trial
+                              </span>
+                            )}
                             {member.hasProofOfPayment && (
                               <span className="px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 text-[9px] font-black flex items-center gap-1">
                                 <Receipt className="w-2.5 h-2.5" />
@@ -3613,7 +3871,9 @@ export default function App() {
                             )}
                           </div>
                           <div className="text-[10px] font-semibold text-slate-500 mt-0.5">
-                            {isApproved
+                            {member.isFreeTrial
+                              ? '30-Day Referral Free Trial • Profit credits after paid upgrade'
+                              : isApproved
                               ? `Approved • Chosen payment R${member.subscriptionAmount.toFixed(2)} credited`
                               : member.status === 'pending_review'
                               ? `Pending approval • R${member.profitAmount.toFixed(2)} credits once approved`
@@ -3623,15 +3883,17 @@ export default function App() {
                         <div className="text-right shrink-0 space-y-1">
                           <div
                             className={`text-xs font-black tabular-nums ${
-                              isApproved
+                              isApproved && !member.isFreeTrial
                                 ? 'text-emerald-700'
                                 : 'text-slate-400'
                             }`}
                           >
-                            {isApproved ? `+R${member.profitAmount.toFixed(2)}` : `R0.00`}
+                            {isApproved && !member.isFreeTrial ? `+R${member.profitAmount.toFixed(2)}` : 'R0.00'}
                           </div>
                           <span className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${badgeClass}`}>
-                            {isApproved
+                            {member.isFreeTrial
+                              ? 'Free Trial'
+                              : isApproved
                               ? 'Approved'
                               : member.status === 'rejected'
                               ? 'Rejected'
@@ -3784,23 +4046,54 @@ export default function App() {
                 <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
                   accountStatus === 'active'
                     ? 'bg-emerald-100 text-emerald-800'
+                    : isFreeTrialExpired
+                    ? 'bg-rose-100 text-rose-800'
                     : 'bg-amber-100 text-amber-800'
                 }`}>
                   {accountStatus === 'active'
-                    ? 'Active'
+                    ? isFreeTrialActive
+                      ? 'Active • 30-Day Free Trial'
+                      : 'Active'
                     : accountStatus === 'pending_review'
                     ? 'Unactive • Under Review'
+                    : isFreeTrialExpired
+                    ? 'Free Trial Ended'
                     : 'Unactive'}
                 </span>
               </div>
-              {accountStatus === 'pending_review' ? (
+              {isFreeTrialActive ? (
+                <div className="space-y-2.5">
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs font-semibold text-emerald-900 space-y-1">
+                    <div className="font-black">
+                      30-Day Referral Free Trial • {trialDaysRemaining} day{trialDaysRemaining === 1 ? '' : 's'} remaining
+                    </div>
+                    {typeof trialExpiresAt === 'number' && (
+                      <div className="text-[11px] font-medium text-emerald-800">
+                        Trial ends on {new Date(trialExpiresAt).toLocaleDateString()}. Upgrade anytime to a paid User or Tenant plan.
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playClickSound();
+                      setShowShopModal(true);
+                    }}
+                    className="w-full py-2.5 bg-slate-950 hover:bg-slate-800 text-white text-xs font-black rounded-xl transition-all cursor-pointer active:scale-95"
+                  >
+                    Upgrade to Paid Plan
+                  </button>
+                </div>
+              ) : accountStatus === 'pending_review' ? (
                 <p className="text-xs font-medium text-slate-600 leading-relaxed">
                   Your live selfie &amp; ID documents are being reviewed (15 to 25 minutes). You can keep scrolling through the app until approved.
                 </p>
               ) : accountStatus === 'unactive' ? (
                 <div className="space-y-2.5">
                   <p className="text-xs font-medium text-slate-600 leading-relaxed">
-                    Choose a subscription in the Shop, capture a live face selfie, and upload your ID documents to submit for approval.
+                    {isFreeTrialExpired
+                      ? 'Your 30-day referral free trial has ended. Choose a subscription in the Shop and submit your verification & Proof of Payment to continue.'
+                      : 'Choose a subscription in the Shop, capture a live face selfie, and upload your ID documents to submit for approval.'}
                   </p>
                   <button
                     type="button"
@@ -3810,7 +4103,7 @@ export default function App() {
                     }}
                     className="w-full py-2.5 bg-slate-950 hover:bg-slate-800 text-white text-xs font-black rounded-xl transition-all cursor-pointer active:scale-95"
                   >
-                    Open Shop &amp; Verify Account
+                    {isFreeTrialExpired ? 'Choose Paid Subscription' : 'Open Shop & Verify Account'}
                   </button>
                 </div>
               ) : null}
@@ -4502,6 +4795,11 @@ export default function App() {
                             <span className="px-2 py-0.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-[9px] font-black uppercase">
                               {item.plan === 'tenant' ? 'Tenant Sub' : 'User Sub'}
                             </span>
+                            {item.isFreeTrial && (
+                              <span className="px-2 py-0.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[9px] font-black">
+                                30-Day Free Trial
+                              </span>
+                            )}
                             {isMyDirectReferral && (
                               <span className="px-2 py-0.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[9px] font-black">
                                 Your Network
@@ -4590,10 +4888,16 @@ export default function App() {
                       }`}
                     >
                       <span>
-                        {item.plan === 'tenant' ? 'Tenant Sub (R299,99/mo)' : 'User Sub (R29,99/mo)'}
+                        {item.isFreeTrial
+                          ? '30-Day Referral Free Trial (R0,00)'
+                          : item.plan === 'tenant'
+                          ? 'Tenant Sub (R299,99/mo)'
+                          : 'User Sub (R29,99/mo)'}
                       </span>
                       <span className="font-black tabular-nums">
-                        {item.status === 'approved'
+                        {item.isFreeTrial
+                          ? 'R0.00/mo (Free Trial)'
+                          : item.status === 'approved'
                           ? `+R${getReferralProfitAmount(item.plan).toFixed(2)}/mo Profit`
                           : item.status === 'rejected'
                           ? 'R0.00/mo Profit'
@@ -4839,6 +5143,11 @@ export default function App() {
                             <span className="px-2 py-0.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-[9px] font-black uppercase">
                               {member.plan === 'tenant' ? 'Tenant Sub' : 'User Sub'}
                             </span>
+                            {member.isFreeTrial && (
+                              <span className="px-2 py-0.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[9px] font-black">
+                                30-Day Free Trial
+                              </span>
+                            )}
                             {member.hasProofOfPayment && (
                               <span className="px-2 py-0.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[9px] font-black flex items-center gap-1">
                                 <Receipt className="w-3 h-3" />
@@ -4870,10 +5179,16 @@ export default function App() {
                       }`}
                     >
                       <span>
-                        {member.plan === 'tenant' ? 'Tenant Sub (R299,99/mo)' : 'User Sub (R29,99/mo)'}
+                        {member.isFreeTrial
+                          ? '30-Day Referral Free Trial (R0,00)'
+                          : member.plan === 'tenant'
+                          ? 'Tenant Sub (R299,99/mo)'
+                          : 'User Sub (R29,99/mo)'}
                       </span>
                       <span className="font-black tabular-nums">
-                        {isApproved
+                        {member.isFreeTrial
+                          ? 'R0.00/mo (Free Trial)'
+                          : isApproved
                           ? `+R${member.profitAmount.toFixed(2)}/mo Profit`
                           : member.status === 'rejected'
                           ? 'R0.00/mo Profit'
@@ -5581,32 +5896,42 @@ export default function App() {
         )}
       </div>
 
-      {/* Non-blocking Account Unactive / Pending Review / Rejected Pill */}
-      {(accountStatus === 'pending_review' || accountStatus === 'rejected') && !isSearchOnlyView && !isTenantReferralsView && (
-        <button
-          type="button"
-          onClick={() => {
-            playClickSound();
-            setShowShopModal(true);
-          }}
-          className={`absolute bottom-14 left-3 z-[90] bg-white/95 backdrop-blur-md text-slate-950 px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 text-[10px] font-black cursor-pointer transition-all active:scale-95 border ${
-            accountStatus === 'rejected'
-              ? 'border-rose-300 hover:bg-rose-50'
-              : 'border-amber-300 hover:bg-amber-50'
-          }`}
-        >
-          {accountStatus === 'rejected' ? (
-            <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-          ) : (
-            <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-          )}
-          <span>
-            {accountStatus === 'rejected'
-              ? 'Subscription Rejected • Tap to Resubmit'
-              : 'Account Unactive • Review 15–25m'}
-          </span>
-        </button>
-      )}
+      {/* Non-blocking Account Trial / Unactive / Pending Review / Rejected Pill */}
+      {(accountStatus === 'pending_review' || accountStatus === 'rejected' || isFreeTrialActive || isFreeTrialExpired) &&
+        !isSearchOnlyView &&
+        !isTenantReferralsView && (
+          <button
+            type="button"
+            onClick={() => {
+              playClickSound();
+              setShowShopModal(true);
+            }}
+            className={`absolute bottom-14 left-3 z-[90] bg-white/95 backdrop-blur-md text-slate-950 px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 text-[10px] font-black cursor-pointer transition-all active:scale-95 border ${
+              accountStatus === 'rejected' || isFreeTrialExpired
+                ? 'border-rose-300 hover:bg-rose-50'
+                : isFreeTrialActive
+                ? 'border-emerald-300 hover:bg-emerald-50'
+                : 'border-amber-300 hover:bg-amber-50'
+            }`}
+          >
+            {accountStatus === 'rejected' || isFreeTrialExpired ? (
+              <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+            ) : isFreeTrialActive ? (
+              <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            ) : (
+              <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            )}
+            <span>
+              {accountStatus === 'rejected'
+                ? 'Subscription Rejected • Tap to Resubmit'
+                : isFreeTrialExpired
+                ? 'Free Trial Ended • Tap to Subscribe'
+                : isFreeTrialActive
+                ? `30-Day Free Trial • ${trialDaysRemaining}d left`
+                : 'Account Unactive • Review 15–25m'}
+            </span>
+          </button>
+        )}
 
       {/* TimeGiG Shop Modal (2 Subscription Boxes) */}
       <ShopModal
@@ -5616,6 +5941,13 @@ export default function App() {
         accountStatus={accountStatus}
         hasSubmittedSubscription={hasSubmittedSubscription}
         rejectionReason={verificationSubmission?.rejectionReason}
+        isReferralFreeTrialEligible={isReferralEligibleForFreeTrial}
+        invitedByCode={effectiveReferralCode || invitedByCode}
+        isFreeTrialActive={isFreeTrialActive}
+        isFreeTrialExpired={isFreeTrialExpired}
+        trialDaysRemaining={trialDaysRemaining}
+        isStartingFreeTrial={isActivatingFreeTrial}
+        onStartFreeTrial={handleActivateReferralFreeTrial}
         onChoosePlan={handleChooseSubscriptionPlan}
       />
 
@@ -5624,6 +5956,7 @@ export default function App() {
         isOpen={showVerificationModal}
         plan={pendingPlanForVerification}
         existingSubmission={verificationSubmission}
+        isReferralFreeTrialEligible={isReferralEligibleForFreeTrial}
         onClose={() => setShowVerificationModal(false)}
         onBackToPlans={() => {
           setShowVerificationModal(false);
@@ -6217,7 +6550,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Post-Signup Congratulations Modal (Directs user to choose a subscription first) */}
+      {/* Post-Signup Congratulations Modal (Directs referral to 30-day free trial or subscription) */}
       {showSignupCongratsModal && !isMainAdminAccount && (
         <div className="fixed inset-0 z-[230] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-md p-6 text-center shadow-2xl space-y-4 text-slate-950 animate-in zoom-in-95 duration-200">
@@ -6226,24 +6559,45 @@ export default function App() {
             </div>
             <div className="space-y-1.5">
               <h2 className="text-xl font-black tracking-tight text-slate-950">
-                Congratulations!
+                {isReferralEligibleForFreeTrial
+                  ? '30-Day Free Trial Unlocked!'
+                  : 'Congratulations!'}
               </h2>
               <p className="text-xs font-semibold text-slate-600 leading-relaxed max-w-sm mx-auto">
-                Your TimeGiG account has been created successfully. Please choose and submit a subscription plan first before you can use the app.
+                {isReferralEligibleForFreeTrial
+                  ? `Welcome! Because you joined via referral code ${effectiveReferralCode}, you get a full 30-day free trial (R0.00 today, no Proof of Payment needed). Start immediately or browse paid plans.`
+                  : 'Your TimeGiG account has been created successfully. Please choose and submit a subscription plan first before you can use the app.'}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                playClickSound();
-                setShowSignupCongratsModal(false);
-                setShowShopModal(true);
-              }}
-              className="w-full py-3.5 px-4 bg-slate-950 hover:bg-slate-800 text-white font-black text-xs rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer active:scale-95"
-            >
-              <ShoppingBag className="w-4 h-4" />
-              <span>Choose a Subscription</span>
-            </button>
+            <div className="space-y-2">
+              {isReferralEligibleForFreeTrial && (
+                <button
+                  type="button"
+                  disabled={isActivatingFreeTrial}
+                  onClick={handleActivateReferralFreeTrial}
+                  className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-black text-xs rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>
+                    {isActivatingFreeTrial
+                      ? 'Activating 30-Day Free Trial...'
+                      : 'Start 30-Day Free Trial (Free)'}
+                  </span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  playClickSound();
+                  setShowSignupCongratsModal(false);
+                  setShowShopModal(true);
+                }}
+                className="w-full py-3.5 px-4 bg-slate-950 hover:bg-slate-800 text-white font-black text-xs rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+              >
+                <ShoppingBag className="w-4 h-4" />
+                <span>Choose a Subscription</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -6259,27 +6613,53 @@ export default function App() {
         !showVerificationModal && (
           <div className="fixed inset-0 z-[195] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
             <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm p-6 text-center shadow-2xl space-y-4 text-slate-950">
-              <div className="w-14 h-14 mx-auto rounded-full bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
-                <ShoppingBag className="w-7 h-7" />
+              <div className={`w-14 h-14 mx-auto rounded-full flex items-center justify-center border ${
+                isReferralEligibleForFreeTrial
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-600'
+                  : 'bg-blue-50 border-blue-200 text-blue-600'
+              }`}>
+                {isReferralEligibleForFreeTrial ? (
+                  <Sparkles className="w-7 h-7" />
+                ) : (
+                  <ShoppingBag className="w-7 h-7" />
+                )}
               </div>
               <div className="space-y-1">
                 <h3 className="text-base font-black text-slate-950">
-                  Choose Your Subscription First
+                  {isReferralEligibleForFreeTrial
+                    ? 'Claim Your 30-Day Free Trial'
+                    : 'Choose Your Subscription First'}
                 </h3>
                 <p className="text-xs font-medium text-slate-600 leading-relaxed">
-                  To continue into TimeGiG after signing up, please select a subscription plan and submit your verification first.
+                  {isReferralEligibleForFreeTrial
+                    ? `Your referral link (${effectiveReferralCode}) unlocks a free 30-day User Subscription trial with instant access.`
+                    : 'To continue into TimeGiG after signing up, please select a subscription plan and submit your verification first.'}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  playClickSound();
-                  setShowShopModal(true);
-                }}
-                className="w-full py-3 bg-slate-950 hover:bg-slate-800 text-white font-black text-xs rounded-xl transition-all shadow-md cursor-pointer active:scale-95"
-              >
-                Open Subscriptions
-              </button>
+              <div className="space-y-2">
+                {isReferralEligibleForFreeTrial && (
+                  <button
+                    type="button"
+                    disabled={isActivatingFreeTrial}
+                    onClick={handleActivateReferralFreeTrial}
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-black text-xs rounded-xl transition-all shadow-md cursor-pointer active:scale-95"
+                  >
+                    {isActivatingFreeTrial
+                      ? 'Activating Free Trial...'
+                      : 'Start 30-Day Free Trial (Free)'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    playClickSound();
+                    setShowShopModal(true);
+                  }}
+                  className="w-full py-3 bg-slate-950 hover:bg-slate-800 text-white font-black text-xs rounded-xl transition-all shadow-md cursor-pointer active:scale-95"
+                >
+                  Open Subscriptions
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={handleSignOut}

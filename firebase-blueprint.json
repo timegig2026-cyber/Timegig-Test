@@ -124,6 +124,21 @@
           "minLength": 3,
           "maxLength": 500
         },
+        "isFreeTrial": {
+          "type": "boolean"
+        },
+        "trialStartedAt": {
+          "type": "integer"
+        },
+        "trialExpiresAt": {
+          "type": "integer"
+        },
+        "invitedBy": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time"
@@ -270,6 +285,15 @@
           "maxLength": 500
         },
         "resubmittedAt": {
+          "type": "integer"
+        },
+        "isFreeTrial": {
+          "type": "boolean"
+        },
+        "trialStartedAt": {
+          "type": "integer"
+        },
+        "trialExpiresAt": {
           "type": "integer"
         },
         "createdAt": {

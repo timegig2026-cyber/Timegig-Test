@@ -33,6 +33,13 @@ interface ShopModalProps {
   accountStatus: AccountStatus;
   hasSubmittedSubscription: boolean;
   rejectionReason?: string;
+  isReferralFreeTrialEligible?: boolean;
+  invitedByCode?: string | null;
+  isFreeTrialActive?: boolean;
+  isFreeTrialExpired?: boolean;
+  trialDaysRemaining?: number;
+  isStartingFreeTrial?: boolean;
+  onStartFreeTrial?: () => void;
   onChoosePlan: (plan: SubscriptionPlan) => void;
 }
 
@@ -62,6 +69,13 @@ export function ShopModal({
   accountStatus,
   hasSubmittedSubscription,
   rejectionReason,
+  isReferralFreeTrialEligible = false,
+  invitedByCode,
+  isFreeTrialActive = false,
+  isFreeTrialExpired = false,
+  trialDaysRemaining = 0,
+  isStartingFreeTrial = false,
+  onStartFreeTrial,
   onChoosePlan,
 }: ShopModalProps) {
   const [showInfo, setShowInfo] = useState(false);
@@ -73,7 +87,7 @@ export function ShopModal({
   if (!isOpen) return null;
 
   const isRejected = accountStatus === 'rejected';
-  const isLocked = hasSubmittedSubscription && !isRejected;
+  const isLocked = hasSubmittedSubscription && !isRejected && !isFreeTrialActive;
 
   const handleChoosePlan = (plan: SubscriptionPlan) => {
     if (isLocked) {
@@ -164,33 +178,69 @@ export function ShopModal({
               The Shop lets you choose your monthly TimeGiG access plan before verifying your identity and proof of payment:
             </p>
             <ul className="text-[11px] font-medium text-slate-700 space-y-1 list-disc pl-4">
+              <li><strong>New Referral 30-Day Free Trial:</strong> Members who join through a referral invite link get 30 days of free User access (R0 today, no proof of payment required) before upgrading to a paid plan.</li>
               <li><strong>Tenant Subscription (R299,99/mo):</strong> Unlocks the Tenant Wallet, personal invite links, and 100% referral subscription profit sharing.</li>
               <li><strong>User Subscription (R29,99/mo):</strong> Gives standard verified access to 2D/3D Lady Voice Navigation, live GiGs, and hiring Seekers.</li>
             </ul>
           </div>
         )}
 
-        {/* Pending Review / Active / Rejected Banner */}
-        {(isLocked || isRejected) && (
+        {/* New Referral 30-Day Free Trial Offer Banner */}
+        {isReferralFreeTrialEligible && !isFreeTrialActive && !isFreeTrialExpired && onStartFreeTrial && (
+          <div className="px-4 sm:px-5 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-400/40 shrink-0">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-emerald-100">
+                <Sparkles className="w-4 h-4 shrink-0 text-amber-300" />
+                <span>New Referral Bonus • 30-Day Free Trial</span>
+              </div>
+              <p className="text-[11px] font-semibold text-white/95 leading-snug">
+                Joined via code <strong>{invitedByCode}</strong> — activate 30 days of free TimeGiG User access now with R0.00 due today.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={isStartingFreeTrial}
+              onClick={() => {
+                soundEngine.playFeatureClick();
+                onStartFreeTrial();
+              }}
+              className="px-4 py-2.5 bg-white hover:bg-emerald-50 disabled:opacity-60 text-emerald-950 font-black text-xs rounded-xl shadow-lg transition-all cursor-pointer active:scale-95 shrink-0 flex items-center justify-center gap-1.5"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+              <span>{isStartingFreeTrial ? 'Activating Trial...' : 'Start 30-Day Free Trial'}</span>
+            </button>
+          </div>
+        )}
+
+        {/* Active Trial / Expired Trial / Pending Review / Active / Rejected Banner */}
+        {(isLocked || isRejected || isFreeTrialActive || isFreeTrialExpired) && (
           <div
-            className={`px-4 py-3 text-xs font-black flex items-start justify-center gap-2 ${
-              accountStatus === 'active'
+            className={`px-4 py-3 text-xs font-black flex items-start justify-center gap-2 shrink-0 ${
+              isFreeTrialActive
+                ? 'bg-emerald-500 text-slate-950'
+                : isFreeTrialExpired
+                ? 'bg-rose-600 text-white'
+                : accountStatus === 'active'
                 ? 'bg-emerald-500 text-slate-950'
                 : isRejected
                 ? 'bg-rose-600 text-white'
                 : 'bg-amber-400 text-slate-950'
             }`}
           >
-            {accountStatus === 'active' ? (
+            {isFreeTrialActive || accountStatus === 'active' ? (
               <Check className="w-4 h-4 shrink-0 stroke-[3px] mt-0.5" />
-            ) : isRejected ? (
+            ) : isRejected || isFreeTrialExpired ? (
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             ) : (
               <Clock className="w-4 h-4 shrink-0 mt-0.5" />
             )}
             <div className="space-y-0.5 text-center sm:text-left">
               <div>
-                {accountStatus === 'active'
+                {isFreeTrialActive
+                  ? `30-Day Free Trial Active • ${trialDaysRemaining} day${trialDaysRemaining === 1 ? '' : 's'} remaining — Upgrade anytime below.`
+                  : isFreeTrialExpired
+                  ? 'Your 30-Day Free Trial has ended — choose a paid subscription plan below to continue.'
+                  : accountStatus === 'active'
                   ? `${selectedPlan === 'tenant' ? 'Tenant' : 'User'} Subscription Active • You cannot submit another subscription.`
                   : isRejected
                   ? `${selectedPlan === 'tenant' ? 'Tenant' : 'User'} Subscription Rejected — Choose a plan below to resubmit.`
@@ -297,6 +347,11 @@ export function ShopModal({
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Resubmit &amp; Verify</span>
                 </>
+              ) : isFreeTrialActive || isFreeTrialExpired ? (
+                <>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Upgrade to Tenant Plan</span>
+                </>
               ) : (
                 <>
                   <Sparkles className="w-3.5 h-3.5" />
@@ -335,6 +390,11 @@ export function ShopModal({
                 <div className="text-2xl font-black text-amber-400 mt-1">
                   R29,99<span className="text-xs font-bold text-slate-400 ml-1">/month</span>
                 </div>
+                {isReferralFreeTrialEligible && !isFreeTrialActive && !isFreeTrialExpired && (
+                  <div className="mt-1.5 inline-block px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[10px] font-black">
+                    First 30 Days FREE for Referrals
+                  </div>
+                )}
               </div>
 
               <p className="text-xs text-slate-300 font-medium text-center mb-4 leading-relaxed">
@@ -395,6 +455,11 @@ export function ShopModal({
                 <>
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Resubmit &amp; Verify</span>
+                </>
+              ) : isFreeTrialActive || isFreeTrialExpired ? (
+                <>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Upgrade to Paid Plan</span>
                 </>
               ) : (
                 <>

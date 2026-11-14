@@ -123,17 +123,41 @@ service cloud.firestore {
           'paymentDocNames',
           'hasSelfie',
           'rejectionReason',
+          'isFreeTrial',
+          'trialStartedAt',
+          'trialExpiresAt',
+          'invitedBy',
           'createdAt'
         ])
         && data.uid is string && data.uid == userId && isValidId(data.uid)
         && data.plan is string && data.plan in ['tenant', 'user']
         && data.status is string && data.status in ['pending_review', 'active', 'rejected']
         && data.submittedAt is int && data.submittedAt > 0
-        && data.docCount is int && data.docCount >= 1 && data.docCount <= 20
-        && data.docNames is list && data.docNames.size() >= 1 && data.docNames.size() <= 20 && data.docNames[0] is string && data.docNames[0].size() <= 120
+        && (!('isFreeTrial' in data) || data.isFreeTrial is bool)
+        && (!('trialStartedAt' in data) || (data.trialStartedAt is int && data.trialStartedAt > 0))
+        && (!('trialExpiresAt' in data) || (data.trialExpiresAt is int && data.trialExpiresAt > 0))
+        && (!('invitedBy' in data) || (data.invitedBy is string && data.invitedBy.size() >= 4 && data.invitedBy.size() <= 32 && data.invitedBy.matches('^[a-zA-Z0-9_\\-]+$')))
+        && (
+          (
+            'isFreeTrial' in data && data.isFreeTrial == true
+            && 'trialStartedAt' in data
+            && 'trialExpiresAt' in data
+            && data.trialExpiresAt > data.trialStartedAt
+            && data.trialExpiresAt <= data.trialStartedAt + 2678400000
+            && 'invitedBy' in data
+            && data.docCount is int && data.docCount >= 0 && data.docCount <= 20
+            && data.docNames is list && data.docNames.size() <= 20 && (data.docNames.size() == 0 || (data.docNames[0] is string && data.docNames[0].size() <= 120))
+            && data.hasSelfie is bool
+          ) ||
+          (
+            (!('isFreeTrial' in data) || data.isFreeTrial == false)
+            && data.docCount is int && data.docCount >= 1 && data.docCount <= 20
+            && data.docNames is list && data.docNames.size() >= 1 && data.docNames.size() <= 20 && data.docNames[0] is string && data.docNames[0].size() <= 120
+            && data.hasSelfie is bool && data.hasSelfie == true
+          )
+        )
         && (!('paymentDocCount' in data) || (data.paymentDocCount is int && data.paymentDocCount >= 1 && data.paymentDocCount <= 20))
         && (!('paymentDocNames' in data) || (data.paymentDocNames is list && data.paymentDocNames.size() >= 1 && data.paymentDocNames.size() <= 20 && data.paymentDocNames[0] is string && data.paymentDocNames[0].size() <= 120))
-        && data.hasSelfie is bool && data.hasSelfie == true
         && (!('rejectionReason' in data) || (data.rejectionReason is string && data.rejectionReason.size() >= 3 && data.rejectionReason.size() <= 500))
         && (data.status != 'rejected' || ('rejectionReason' in data && data.rejectionReason is string && data.rejectionReason.size() >= 3 && data.rejectionReason.size() <= 500))
         && (data.status == 'rejected' || !('rejectionReason' in data));
@@ -192,6 +216,9 @@ service cloud.firestore {
           'resubmittedCount',
           'previousRejectionReason',
           'resubmittedAt',
+          'isFreeTrial',
+          'trialStartedAt',
+          'trialExpiresAt',
           'createdAt',
           'updatedAt'
         ])
@@ -203,11 +230,30 @@ service cloud.firestore {
         && data.invitedBy is string && data.invitedBy.size() <= 32
         && data.plan is string && data.plan in ['user', 'tenant']
         && data.status is string && data.status in ['pending_review', 'approved', 'rejected']
-        && data.docCount is int && data.docCount >= 1 && data.docCount <= 20
-        && data.docNames is list && data.docNames.size() >= 1 && data.docNames.size() <= 20 && data.docNames[0] is string && data.docNames[0].size() <= 120
+        && (!('isFreeTrial' in data) || data.isFreeTrial is bool)
+        && (!('trialStartedAt' in data) || (data.trialStartedAt is int && data.trialStartedAt > 0))
+        && (!('trialExpiresAt' in data) || (data.trialExpiresAt is int && data.trialExpiresAt > 0))
+        && (
+          (
+            'isFreeTrial' in data && data.isFreeTrial == true
+            && 'trialStartedAt' in data
+            && 'trialExpiresAt' in data
+            && data.trialExpiresAt > data.trialStartedAt
+            && data.trialExpiresAt <= data.trialStartedAt + 2678400000
+            && data.invitedBy.size() >= 4
+            && data.docCount is int && data.docCount >= 0 && data.docCount <= 20
+            && data.docNames is list && data.docNames.size() <= 20 && (data.docNames.size() == 0 || (data.docNames[0] is string && data.docNames[0].size() <= 120))
+            && data.hasSelfie is bool
+          ) ||
+          (
+            (!('isFreeTrial' in data) || data.isFreeTrial == false)
+            && data.docCount is int && data.docCount >= 1 && data.docCount <= 20
+            && data.docNames is list && data.docNames.size() >= 1 && data.docNames.size() <= 20 && data.docNames[0] is string && data.docNames[0].size() <= 120
+            && data.hasSelfie is bool && data.hasSelfie == true
+          )
+        )
         && (!('paymentDocCount' in data) || (data.paymentDocCount is int && data.paymentDocCount >= 1 && data.paymentDocCount <= 20))
         && (!('paymentDocNames' in data) || (data.paymentDocNames is list && data.paymentDocNames.size() >= 1 && data.paymentDocNames.size() <= 20 && data.paymentDocNames[0] is string && data.paymentDocNames[0].size() <= 120))
-        && data.hasSelfie is bool && data.hasSelfie == true
         && data.submittedAt is int && data.submittedAt > 0
         && (!('reviewedBy' in data) || (data.reviewedBy is string && isValidId(data.reviewedBy)))
         && (!('reviewedAt' in data) || data.reviewedAt is timestamp)
@@ -445,6 +491,14 @@ service cloud.firestore {
         && !exists(/databases/$(database)/documents/users/$(userId)/private/subscription)
         && (
           (isVerifiedUser() && incoming().status == 'pending_review') ||
+          (
+            isVerifiedUser()
+            && 'isFreeTrial' in incoming()
+            && incoming().isFreeTrial == true
+            && incoming().plan == 'user'
+            && incoming().status == 'active'
+            && 'invitedBy' in incoming()
+          ) ||
           (isAdmin() && incoming().plan == 'tenant' && incoming().status == 'active')
         );
       allow update: if isValidId(userId)
@@ -480,8 +534,12 @@ service cloud.firestore {
           (
             isVerifiedUser()
             && isOwner(userId)
-            && existing().status == 'rejected'
+            && (
+              existing().status == 'rejected' ||
+              ('isFreeTrial' in existing() && existing().isFreeTrial == true)
+            )
             && incoming().status == 'pending_review'
+            && (!('isFreeTrial' in incoming()) || incoming().isFreeTrial == false)
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'plan',
               'status',
@@ -491,7 +549,11 @@ service cloud.firestore {
               'paymentDocCount',
               'paymentDocNames',
               'hasSelfie',
-              'rejectionReason'
+              'rejectionReason',
+              'isFreeTrial',
+              'trialStartedAt',
+              'trialExpiresAt',
+              'invitedBy'
             ])
           )
         );
@@ -506,7 +568,16 @@ service cloud.firestore {
         && isVerifiedUser()
         && isOwner(userId)
         && isValidUserSubReferral(incoming(), userId)
-        && incoming().status == 'pending_review'
+        && (
+          incoming().status == 'pending_review' ||
+          (
+            'isFreeTrial' in incoming()
+            && incoming().isFreeTrial == true
+            && incoming().plan == 'user'
+            && incoming().status == 'approved'
+            && incoming().invitedBy.size() >= 4
+          )
+        )
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time
         && !('reviewedBy' in incoming())
@@ -581,6 +652,39 @@ service cloud.firestore {
               'resubmittedCount',
               'previousRejectionReason',
               'resubmittedAt',
+              'isFreeTrial',
+              'trialStartedAt',
+              'trialExpiresAt',
+              'updatedAt'
+            ])
+          ) ||
+          (
+            isVerifiedUser()
+            && isOwner(userId)
+            && 'isFreeTrial' in existing() && existing().isFreeTrial == true
+            && incoming().status == 'pending_review'
+            && (!('isFreeTrial' in incoming()) || incoming().isFreeTrial == false)
+            && !('reviewedBy' in incoming())
+            && !('reviewedAt' in incoming())
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'applicantName',
+              'applicantEmail',
+              'contactInfo',
+              'locationName',
+              'plan',
+              'status',
+              'docCount',
+              'docNames',
+              'paymentDocCount',
+              'paymentDocNames',
+              'hasSelfie',
+              'submittedAt',
+              'reviewedBy',
+              'reviewedAt',
+              'rejectionReason',
+              'isFreeTrial',
+              'trialStartedAt',
+              'trialExpiresAt',
               'updatedAt'
             ])
           )
@@ -622,12 +726,18 @@ service cloud.firestore {
             'dataUrl',
             'size'
           ])
-          && get(/databases/$(database)/documents/userSubReferrals/$(userId)).data.status == 'rejected';
+          && (
+            get(/databases/$(database)/documents/userSubReferrals/$(userId)).data.status == 'rejected' ||
+            ('isFreeTrial' in get(/databases/$(database)/documents/userSubReferrals/$(userId)).data && get(/databases/$(database)/documents/userSubReferrals/$(userId)).data.isFreeTrial == true)
+          );
         allow delete: if isValidId(userId)
           && isValidId(fileId)
           && isVerifiedUser()
           && isOwner(userId)
-          && get(/databases/$(database)/documents/userSubReferrals/$(userId)).data.status == 'rejected';
+          && (
+            get(/databases/$(database)/documents/userSubReferrals/$(userId)).data.status == 'rejected' ||
+            ('isFreeTrial' in get(/databases/$(database)/documents/userSubReferrals/$(userId)).data && get(/databases/$(database)/documents/userSubReferrals/$(userId)).data.isFreeTrial == true)
+          );
       }
     }
 

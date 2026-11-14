@@ -91,6 +91,9 @@ export interface UserSubReferralItem {
   resubmittedCount?: number;
   previousRejectionReason?: string;
   resubmittedAt?: number;
+  isFreeTrial?: boolean;
+  trialStartedAt?: number;
+  trialExpiresAt?: number;
 }
 
 export interface TenantReferralProfitItem {
@@ -106,6 +109,8 @@ export interface TenantReferralProfitItem {
   status: UserSubReferralStatus;
   submittedAt: number;
   creditedAt?: number;
+  isFreeTrial?: boolean;
+  trialExpiresAt?: number;
 }
 
 export interface UploadedIdDoc {
@@ -125,6 +130,10 @@ export interface VerificationSubmission {
   submittedAt: number;
   status: AccountStatus;
   rejectionReason?: string;
+  isFreeTrial?: boolean;
+  trialStartedAt?: number;
+  trialExpiresAt?: number;
+  invitedBy?: string;
 }
 
 export interface SocialLink {
