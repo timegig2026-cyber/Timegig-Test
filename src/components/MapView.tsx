@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet-polylinedecorator';
-import { GeoLocationData, SavedPin, MapTileStyle, GigPost } from '../types';
+import { GeoLocationData, SavedPin, MapTileStyle, GigPost, ItemForSale } from '../types';
 import { MAP_TILES, calculateDistance, formatDistance } from '../utils/geo';
 
 const escapeHtml = (value: string): string =>
@@ -45,6 +45,9 @@ interface MapViewProps {
   gigPosts?: GigPost[];
   onSelectGigPost?: (gig: GigPost) => void;
   isPickingGigLocation?: boolean;
+  itemsForSale?: ItemForSale[];
+  onSelectItem?: (item: ItemForSale) => void;
+  isPickingItemLocation?: boolean;
   userSelfieUrl?: string;
 }
 
@@ -64,6 +67,9 @@ export const MapView: React.FC<MapViewProps> = ({
   gigPosts = [],
   onSelectGigPost,
   isPickingGigLocation = false,
+  itemsForSale = [],
+  onSelectItem,
+  isPickingItemLocation = false,
   userSelfieUrl = '',
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -76,6 +82,8 @@ export const MapView: React.FC<MapViewProps> = ({
   onMapClickRef.current = onMapClick;
   const onSelectGigPostRef = useRef(onSelectGigPost);
   onSelectGigPostRef.current = onSelectGigPost;
+  const onSelectItemRef = useRef(onSelectItem);
+  onSelectItemRef.current = onSelectItem;
   const onUserInteractRef = useRef(onUserInteract);
   onUserInteractRef.current = onUserInteract;
 
@@ -539,11 +547,119 @@ export const MapView: React.FC<MapViewProps> = ({
       }
       group.addLayer(marker);
     });
-  }, [userLocation, userSelfieUrl, savedPins, trackingTrail, routePath, destination, gigPosts]);
+
+    // 7. Live Items for Sale Markers (3D Marketplace Pins)
+    itemsForSale.forEach((item) => {
+      if (item.status !== 'active') return;
+      const safeTitle = escapeHtml(item.title);
+      const safePrice = escapeHtml(item.price);
+      const safeCategory = escapeHtml(item.category);
+      const safeCondition = escapeHtml(item.condition);
+
+      const photoThumbnail = item.photoUrl
+        ? `<div style="
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 1.5px solid #ffffff;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+            flex-shrink: 0;
+            background: #064e3b;
+          ">
+            <img src="${escapeHtml(item.photoUrl)}" alt="${safeTitle}" style="width: 100%; height: 100%; object-fit: cover;" />
+          </div>`
+        : `<div style="
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #064e3b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            flex-shrink: 0;
+            border: 1.5px solid #34d399;
+          ">🏷️</div>`;
+
+      const itemIcon = L.divIcon({
+        className: 'custom-item-sale-marker',
+        html: `
+          <div style="
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            transform: translateY(-4px);
+          ">
+            <div style="
+              background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
+              color: #ffffff;
+              border: 2px solid #34d399;
+              border-radius: 16px;
+              padding: 3px 8px 3px 5px;
+              box-shadow: 0 10px 22px rgba(6, 78, 59, 0.5), 0 0 0 3px rgba(52, 211, 153, 0.25);
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              white-space: nowrap;
+              max-width: 210px;
+            ">
+              ${photoThumbnail}
+              <span style="
+                background: #10b981;
+                color: #ffffff;
+                font-size: 9px;
+                font-weight: 900;
+                padding: 1px 5px;
+                border-radius: 6px;
+                letter-spacing: 0.02em;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+              ">${safePrice}</span>
+              <span style="
+                font-size: 10px;
+                font-weight: 800;
+                color: #ffffff;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 105px;
+              ">${safeTitle}</span>
+            </div>
+            <div style="
+              width: 10px;
+              height: 10px;
+              background: #10b981;
+              border: 2px solid #ffffff;
+              border-radius: 50%;
+              margin-top: 2px;
+              box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+            "></div>
+          </div>
+        `,
+        iconSize: [190, 44],
+        iconAnchor: [95, 42],
+      });
+
+      const dist = calculateDistance(userLocation.lat, userLocation.lng, item.lat, item.lng);
+      const marker = L.marker([item.lat, item.lng], { icon: itemIcon });
+      marker.on('click', (e: L.LeafletMouseEvent) => {
+        L.DomEvent.stopPropagation(e);
+        if (onSelectItemRef.current) {
+          onSelectItemRef.current(item);
+        }
+      });
+      if (!onSelectItemRef.current) {
+        marker.bindPopup(
+          `<b>${safeTitle} • ${safePrice}</b><br/>${safeCategory} • ${safeCondition}<br/>${formatDistance(dist)} away`
+        );
+      }
+      group.addLayer(marker);
+    });
+  }, [userLocation, userSelfieUrl, savedPins, trackingTrail, routePath, destination, gigPosts, itemsForSale]);
 
   return (
-    <div className={`flex-1 h-full w-full relative z-0 map-perspective-container ${is3D ? 'map-3d-active' : ''} ${isPickingGigLocation ? 'cursor-crosshair' : ''}`}>
-      <div ref={mapContainerRef} className={`h-full w-full ${isPickingGigLocation ? '!cursor-crosshair' : ''}`} />
+    <div className={`flex-1 h-full w-full relative z-0 map-perspective-container ${is3D ? 'map-3d-active' : ''} ${isPickingGigLocation || isPickingItemLocation ? 'cursor-crosshair' : ''}`}>
+      <div ref={mapContainerRef} className={`h-full w-full ${isPickingGigLocation || isPickingItemLocation ? '!cursor-crosshair' : ''}`} />
     </div>
   );
 };

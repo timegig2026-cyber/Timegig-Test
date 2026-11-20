@@ -595,6 +595,116 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "ItemForSale": {
+      "title": "ItemForSale",
+      "description": "User-listed items for sale displayed at their coordinates on the map.",
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sellerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sellerName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "sellerSelfieUrl": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "Electronics",
+            "Vehicles & Parts",
+            "Home & Furniture",
+            "Tools & Equipment",
+            "Fashion & Clothing",
+            "Sports & Outdoors",
+            "Appliances",
+            "Other"
+          ]
+        },
+        "price": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "description": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 500
+        },
+        "condition": {
+          "type": "string",
+          "enum": ["Brand New", "Like New", "Good", "Fair"]
+        },
+        "photoUrl": {
+          "type": "string"
+        },
+        "contactInfo": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 80
+        },
+        "locationName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "lat": {
+          "type": "number"
+        },
+        "lng": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "sold"]
+        },
+        "submittedAt": {
+          "type": "integer"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "itemId",
+        "sellerUid",
+        "sellerName",
+        "title",
+        "category",
+        "price",
+        "description",
+        "condition",
+        "contactInfo",
+        "locationName",
+        "lat",
+        "lng",
+        "status",
+        "submittedAt",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -657,6 +767,12 @@
         "$ref": "#/entities/GigPost"
       },
       "description": "Live user-created gig posts displayed at their exact coordinates on the map."
+    },
+    "/itemsForSale/{itemId}": {
+      "schema": {
+        "$ref": "#/entities/ItemForSale"
+      },
+      "description": "User-listed items for sale displayed on the map for nearby buyers."
     }
   }
 }

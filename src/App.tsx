@@ -4,17 +4,18 @@ import { BookmarksView } from './components/BookmarksView';
 import { ShopModal, SubscriptionPlan } from './components/ShopModal';
 import { VerificationModal } from './components/VerificationModal';
 import { SelfieLogoModal } from './components/SelfieLogoModal';
+import { SellItemModal } from './components/SellItemModal';
 import { AuthModal, AuthCompletionPayload } from './components/AuthModal';
 import { AdminPinModal } from './components/AdminPinModal';
 import { FloatingToolsWallpaper } from './components/FloatingToolsWallpaper';
-import { GeoLocationData, SavedPin, MapTileStyle, NavigationRoute, AccountStatus, VerificationSubmission, UserProfile, UserSubReferralItem, UserSubReferralStatus, VerificationArtifactFile, TenantReferralProfitItem, GigPost, GigCategory, SeekerProfile, SeekerHireRequest } from './types';
+import { GeoLocationData, SavedPin, MapTileStyle, NavigationRoute, AccountStatus, VerificationSubmission, UserProfile, UserSubReferralItem, UserSubReferralStatus, VerificationArtifactFile, TenantReferralProfitItem, GigPost, GigCategory, SeekerProfile, SeekerHireRequest, ItemForSale, ItemCategory, ItemCondition } from './types';
 import { reverseGeocode, searchLocations, fetchRouteWithSteps, formatSpokenDistance, formatDuration, formatDistance, calculateDistance } from './utils/geo';
 import { soundEngine } from './utils/audio';
 import { ladyVoiceNavigator } from './utils/voiceNav';
 import { auth, db, handleFirestoreError, OperationType } from './firebase';
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, deleteField, onSnapshot, serverTimestamp, collection, query, orderBy, where } from 'firebase/firestore';
-import { Home, Users, Search, UserCircle, Globe, LocateFixed, Layers, Zap, MoreHorizontal, Settings, MessageSquare, Heart, MapPin, Calendar, Camera, Briefcase, Share2, DollarSign, Wallet, TrendingUp, Copy, Check, Star, ShieldCheck, Mail, Phone, Info, Bell, Shield, ChevronRight, Upload, FileText, Clock, UserCheck, RefreshCw, AlertCircle, X, ChevronLeft, ShoppingBag, Volume2, VolumeX, Navigation, LayoutGrid, Plus, Trash2, Link2, Lock, Pencil, LogIn, LogOut, UserPlus, Sparkles, CheckCircle2, Eye, XCircle, Receipt, Maximize2, ZoomIn, ZoomOut, RotateCcw, Wrench } from 'lucide-react';
+import { Home, Users, Search, UserCircle, Globe, LocateFixed, Layers, Zap, MoreHorizontal, Settings, MessageSquare, Heart, MapPin, Calendar, Camera, Briefcase, Share2, DollarSign, Wallet, TrendingUp, Copy, Check, Star, ShieldCheck, Mail, Phone, Info, Bell, Shield, ChevronRight, Upload, FileText, Clock, UserCheck, RefreshCw, AlertCircle, X, ChevronLeft, ShoppingBag, Volume2, VolumeX, Navigation, LayoutGrid, Plus, Trash2, Link2, Lock, Pencil, LogIn, LogOut, UserPlus, Sparkles, CheckCircle2, Eye, XCircle, Receipt, Maximize2, ZoomIn, ZoomOut, RotateCcw, Wrench, Tag } from 'lucide-react';
 import L from 'leaflet';
 import seekerHandymanImg from './assets/images/seeker_handyman_selfie_1794592359439.jpg';
 import seekerFemaleTechImg from './assets/images/seeker_female_tech_selfie_1794592370810.jpg';
@@ -152,6 +153,8 @@ type FeatureInfoKey =
   | 'phone_menu'
   | 'create_gig'
   | 'gig_detail'
+  | 'sell_item'
+  | 'item_detail'
   | 'seekers'
   | 'hire_seeker'
   | 'tenant'
@@ -193,6 +196,7 @@ const FEATURE_INFO_CONTENT: Record<
       'Quickly access TimeGiG creation tools, the Seekers Marketplace, and Subscriptions right from the map.',
     points: [
       'Create Gig: Drop a pin anywhere on the map to publish a live job post.',
+      'Sell Item: List any physical item for sale with photos, price, and pickup location on the map.',
       'Seekers: Browse and hire available tradespeople and specialists nearby.',
       'Shop: Select or review your Tenant (R299,99/mo) or User (R29,99/mo) subscription.',
     ],
@@ -206,6 +210,28 @@ const FEATURE_INFO_CONTENT: Record<
       'Tap anywhere on the map, use your current GPS spot, or search an address.',
       'Set a title, category, budget/pay, clear instructions, and contact info.',
       'Your face selfie appears on the live gig post so applicants know who posted it.',
+    ],
+  },
+  sell_item: {
+    title: 'Sell Any Item on Map',
+    badge: 'Marketplace',
+    summary:
+      'List physical goods, equipment, electronics, furniture, or vehicles for sale directly on the live map.',
+    points: [
+      'Take or upload a photo, set your selling price in Rands, condition, and category.',
+      'Pin the item to your current GPS position or choose any pickup location on the map.',
+      'Nearby buyers can view your listing on the map, get directions, and contact you directly.',
+    ],
+  },
+  item_detail: {
+    title: 'Item For Sale Details',
+    badge: 'Live Marketplace',
+    summary:
+      'View item photos, selling price, condition, seller profile, and location on the live map.',
+    points: [
+      'Buyers can launch Lady Voice Navigation directly to the item location and contact the seller via phone or WhatsApp.',
+      'Sellers see exclusive Edit, Mark as Sold, and Delete actions when opening their own items.',
+      'Photos can be enlarged to full screen with zoom controls.',
     ],
   },
   gig_detail: {
@@ -411,6 +437,21 @@ export default function App() {
   const [cancellingGigTarget, setCancellingGigTarget] = useState<GigPost | null>(null);
   const [cancellationReasonInput, setCancellationReasonInput] = useState('');
   const [cancelGigError, setCancelGigError] = useState<string | null>(null);
+
+  const [itemsForSale, setItemsForSale] = useState<ItemForSale[]>([]);
+  const [isPickingItemLocation, setIsPickingItemLocation] = useState(false);
+  const [showSellItemModal, setShowSellItemModal] = useState(false);
+  const [itemDraftLocation, setItemDraftLocation] = useState<{
+    lat: number;
+    lng: number;
+    address: string;
+  } | null>(null);
+  const [editingItemTarget, setEditingItemTarget] = useState<ItemForSale | null>(null);
+  const [isSubmittingItem, setIsSubmittingItem] = useState(false);
+  const [selectedItemForSale, setSelectedItemForSale] = useState<ItemForSale | null>(null);
+  const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
+  const [fullScreenImageUrl, setFullScreenImageUrl] = useState<string | null>(null);
+  const [activeItemPhotoIndex, setActiveItemPhotoIndex] = useState(0);
 
   const myCompletedGigsAsWorker = useMemo(
     () => gigPosts.filter((g) => g.status === 'completed' && g.completedUserUid === authUser?.uid && typeof g.rating === 'number'),
@@ -1509,6 +1550,7 @@ export default function App() {
     );
     if (!authUser || !isVerifiedSession) {
       setGigPosts([]);
+      setItemsForSale([]);
       return;
     }
 
@@ -1565,7 +1607,53 @@ export default function App() {
       }
     );
 
-    return () => unsubscribeGigs();
+    const itemsPath = 'itemsForSale';
+    const itemsQuery = query(collection(db, itemsPath), where('status', 'in', ['active', 'sold']));
+    const unsubscribeItems = onSnapshot(
+      itemsQuery,
+      (snapshot) => {
+        const loaded: ItemForSale[] = snapshot.docs
+          .map((docSnap) => {
+            const d = docSnap.data() as Partial<ItemForSale>;
+            return {
+              itemId: d.itemId || docSnap.id,
+              sellerUid: d.sellerUid || '',
+              sellerName: d.sellerName || 'TimeGiG Seller',
+              sellerSelfieUrl: d.sellerSelfieUrl || '',
+              title: d.title || 'Item for Sale',
+              category: (d.category as any) || 'Other',
+              price: d.price || 'R0',
+              description: d.description || '',
+              condition: (d.condition as any) || 'Like New',
+              photoUrl: d.photoUrl || '',
+              contactInfo: d.contactInfo || '',
+              locationName: d.locationName || 'Pinned Location',
+              lat: typeof d.lat === 'number' ? d.lat : 0,
+              lng: typeof d.lng === 'number' ? d.lng : 0,
+              status: (d.status === 'sold' ? 'sold' : 'active') as ItemForSale['status'],
+              submittedAt: typeof d.submittedAt === 'number' ? d.submittedAt : Date.now(),
+            };
+          })
+          .filter((item) => Number.isFinite(item.lat) && Number.isFinite(item.lng))
+          .sort((a, b) => b.submittedAt - a.submittedAt);
+
+        setItemsForSale(loaded);
+
+        setSelectedItemForSale((prev) => {
+          if (!prev) return null;
+          const fresh = loaded.find((item) => item.itemId === prev.itemId);
+          return fresh || prev;
+        });
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, itemsPath);
+      }
+    );
+
+    return () => {
+      unsubscribeGigs();
+      unsubscribeItems();
+    };
   }, [authUser]);
 
   // Debounced location suggestions search when typing location manually in Create Gig modal
@@ -2005,6 +2093,246 @@ export default function App() {
     } catch (err: any) {
       setCancelGigError(err?.message || 'Unable to cancel gig.');
       handleFirestoreError(err, OperationType.UPDATE, gigPath);
+    }
+  };
+
+  const handleStartSellItem = () => {
+    soundEngine.playFeatureClick();
+    setShowPhoneMenu(false);
+    if (!authUser) {
+      setShowAuthModal(true);
+      return;
+    }
+    setEditingItemTarget(null);
+    const fallbackCoordsLabel = `${userLocation.lat.toFixed(5)}, ${userLocation.lng.toFixed(5)}`;
+    setItemDraftLocation({
+      lat: userLocation.lat,
+      lng: userLocation.lng,
+      address: userProfile.locationName || fallbackCoordsLabel,
+    });
+    setShowSellItemModal(true);
+  };
+
+  const handlePickItemLocationOnMap = () => {
+    soundEngine.playFeatureClick();
+    setShowSellItemModal(false);
+    setViewMode('map');
+    setIsPickingItemLocation(true);
+  };
+
+  const handlePickItemLocationAt = async (lat: number, lng: number) => {
+    soundEngine.playFeatureClick();
+    setIsPickingItemLocation(false);
+    const fallbackCoordsLabel = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    setItemDraftLocation({ lat, lng, address: fallbackCoordsLabel });
+    setShowSellItemModal(true);
+
+    const resolvedAddress = await reverseGeocode(lat, lng);
+    if (resolvedAddress) {
+      setItemDraftLocation((prev) =>
+        prev && Math.abs(prev.lat - lat) < 0.00001 && Math.abs(prev.lng - lng) < 0.00001
+          ? { ...prev, address: resolvedAddress.slice(0, 200) }
+          : prev
+      );
+    }
+  };
+
+  const handleSubmitItemForSale = async (itemData: {
+    title: string;
+    category: ItemCategory;
+    price: string;
+    description: string;
+    condition: ItemCondition;
+    photoUrl?: string;
+    photoUrls?: string[];
+    contactInfo: string;
+    locationName: string;
+    lat: number;
+    lng: number;
+  }) => {
+    if (!authUser) return;
+    setIsSubmittingItem(true);
+    soundEngine.playFeatureClick();
+
+    if (editingItemTarget) {
+      const itemPath = `itemsForSale/${editingItemTarget.itemId}`;
+      try {
+        await updateDoc(doc(db, 'itemsForSale', editingItemTarget.itemId), {
+          ...itemData,
+          updatedAt: serverTimestamp(),
+        });
+        soundEngine.playSuccessChime();
+        setShowSellItemModal(false);
+        setEditingItemTarget(null);
+        setSelectedItemForSale((prev) =>
+          prev && prev.itemId === editingItemTarget.itemId ? { ...prev, ...itemData } : prev
+        );
+      } catch (err: any) {
+        handleFirestoreError(err, OperationType.UPDATE, itemPath);
+        throw err;
+      } finally {
+        setIsSubmittingItem(false);
+      }
+      return;
+    }
+
+    const itemRef = doc(collection(db, 'itemsForSale'));
+    const itemPath = `itemsForSale/${itemRef.id}`;
+    const sellerName = (
+      [userProfile.firstName.trim(), userProfile.lastName.trim()].filter(Boolean).join(' ') ||
+      authUser.displayName ||
+      authUser.email?.split('@')[0] ||
+      'TimeGiG Seller'
+    ).slice(0, 120);
+
+    try {
+      await setDoc(itemRef, {
+        itemId: itemRef.id,
+        sellerUid: authUser.uid,
+        sellerName,
+        sellerSelfieUrl: profileLogoSrc || userProfile.logoDataUrl || '',
+        ...itemData,
+        status: 'active',
+        submittedAt: Date.now(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      soundEngine.playSuccessChime();
+      setShowSellItemModal(false);
+      setItemDraftLocation(null);
+      setViewMode('map');
+      setFlyToTarget({ lat: itemData.lat, lng: itemData.lng, zoom: 16, timestamp: Date.now() });
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.CREATE, itemPath);
+      throw err;
+    } finally {
+      setIsSubmittingItem(false);
+    }
+  };
+
+  const handleDeleteItemForSale = async (item: ItemForSale) => {
+    if (!authUser) return;
+    if (item.sellerUid !== authUser.uid && !isMainAdminAccount) return;
+
+    soundEngine.playFeatureClick();
+    setDeletingItemId(item.itemId);
+    const itemPath = `itemsForSale/${item.itemId}`;
+    try {
+      await deleteDoc(doc(db, 'itemsForSale', item.itemId));
+      setSelectedItemForSale(null);
+      soundEngine.playSuccessChime();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, itemPath);
+    } finally {
+      setDeletingItemId(null);
+    }
+  };
+
+  const handleMarkItemSold = async (item: ItemForSale) => {
+    if (!authUser) return;
+    if (item.sellerUid !== authUser.uid && !isMainAdminAccount) return;
+
+    soundEngine.playFeatureClick();
+    const itemPath = `itemsForSale/${item.itemId}`;
+    const nextStatus = item.status === 'sold' ? 'active' : 'sold';
+    try {
+      await updateDoc(doc(db, 'itemsForSale', item.itemId), {
+        status: nextStatus,
+        updatedAt: serverTimestamp(),
+      });
+      soundEngine.playSuccessChime();
+      setSelectedItemForSale((prev) =>
+        prev && prev.itemId === item.itemId ? { ...prev, status: nextStatus } : prev
+      );
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, itemPath);
+    }
+  };
+
+  const handleSelectGigPost = async (gig: GigPost) => {
+    soundEngine.playFeatureClick();
+    setSelectedGigPost(gig);
+    if (authUser && gig.creatorUid !== authUser.uid) {
+      try {
+        await updateDoc(doc(db, 'gigPosts', gig.gigId), {
+          viewsCount: (gig.viewsCount || 0) + 1,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (err) {
+        // ignore view increment errors
+      }
+    }
+  };
+
+  const handleSelectItemForSale = async (item: ItemForSale) => {
+    soundEngine.playFeatureClick();
+    setActiveItemPhotoIndex(0);
+    setSelectedItemForSale(item);
+    if (authUser && item.sellerUid !== authUser.uid) {
+      try {
+        await updateDoc(doc(db, 'itemsForSale', item.itemId), {
+          viewsCount: (item.viewsCount || 0) + 1,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (err) {
+        // ignore view increment errors
+      }
+    }
+  };
+
+  const handleToggleGigInterest = async (gig: GigPost) => {
+    if (!authUser) {
+      soundEngine.playFeatureClick();
+      setShowAuthModal(true);
+      return;
+    }
+    soundEngine.playFeatureClick();
+    const currentUids = gig.interestedUserUids || [];
+    const isInterested = currentUids.includes(authUser.uid);
+    const updatedUids = isInterested
+      ? currentUids.filter((id) => id !== authUser.uid)
+      : [...currentUids, authUser.uid];
+
+    const gigPath = `gigPosts/${gig.gigId}`;
+    try {
+      await updateDoc(doc(db, 'gigPosts', gig.gigId), {
+        interestedUserUids: updatedUids,
+        updatedAt: serverTimestamp(),
+      });
+      setSelectedGigPost((prev) =>
+        prev && prev.gigId === gig.gigId ? { ...prev, interestedUserUids: updatedUids } : prev
+      );
+      soundEngine.playSuccessChime();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, gigPath);
+    }
+  };
+
+  const handleToggleItemInterest = async (item: ItemForSale) => {
+    if (!authUser) {
+      soundEngine.playFeatureClick();
+      setShowAuthModal(true);
+      return;
+    }
+    soundEngine.playFeatureClick();
+    const currentUids = item.interestedUserUids || [];
+    const isInterested = currentUids.includes(authUser.uid);
+    const updatedUids = isInterested
+      ? currentUids.filter((id) => id !== authUser.uid)
+      : [...currentUids, authUser.uid];
+
+    const itemPath = `itemsForSale/${item.itemId}`;
+    try {
+      await updateDoc(doc(db, 'itemsForSale', item.itemId), {
+        interestedUserUids: updatedUids,
+        updatedAt: serverTimestamp(),
+      });
+      setSelectedItemForSale((prev) =>
+        prev && prev.itemId === item.itemId ? { ...prev, interestedUserUids: updatedUids } : prev
+      );
+      soundEngine.playSuccessChime();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, itemPath);
     }
   };
 
@@ -5403,7 +5731,7 @@ export default function App() {
           userLocation={userLocation}
           savedPins={EMPTY_PINS}
           selectedTile={selectedTile}
-          onMapClick={isPickingGigLocation ? handlePickGigLocationAt : noopMapAction}
+          onMapClick={isPickingGigLocation ? handlePickGigLocationAt : isPickingItemLocation ? handlePickItemLocationAt : noopMapAction}
           onOpenAddPinAt={noopMapAction}
           trackingTrail={EMPTY_TRAIL}
           flyToTarget={flyToTarget}
@@ -5412,12 +5740,12 @@ export default function App() {
           routePath={routePath}
           destination={destination}
           gigPosts={gigPosts}
+          itemsForSale={itemsForSale}
+          onSelectItem={handleSelectItemForSale}
+          isPickingItemLocation={isPickingItemLocation}
           isPickingGigLocation={isPickingGigLocation}
           userSelfieUrl={profileLogoSrc}
-          onSelectGigPost={(gig) => {
-            soundEngine.playFeatureClick();
-            setSelectedGigPost(gig);
-          }}
+          onSelectGigPost={handleSelectGigPost}
           onUserInteract={() => {
             userPannedDuringNavRef.current = true;
             userZoomedDuringNavRef.current = true;
@@ -5639,6 +5967,56 @@ export default function App() {
         </div>
       )}
 
+      {/* Pick Location Banner for Selling an Item on the Map */}
+      {isPickingItemLocation && isMapVisible && (
+        <div className="absolute top-28 left-1/2 -translate-x-1/2 z-[145] w-11/12 max-w-md animate-in slide-in-from-top-4 duration-300">
+          <div className="bg-slate-950/95 backdrop-blur-xl border-2 border-emerald-400 rounded-2xl p-3.5 text-white shadow-2xl space-y-2.5">
+            <div className="flex items-start gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500 text-slate-950 flex items-center justify-center shrink-0 shadow-sm">
+                <Tag className="w-4 h-4 stroke-[2.5px]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
+                  Place Item on Map
+                </div>
+                <p className="text-xs font-bold text-white leading-snug">
+                  Tap any exact spot on the map where buyers can locate or pick up this item.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => openFeatureInfo('sell_item')}
+                title="About Sell Item Feature"
+                aria-label="About Sell Item Feature"
+                className="w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 text-emerald-400 flex items-center justify-center shrink-0 cursor-pointer"
+              >
+                <Info className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handlePickItemLocationAt(userLocation.lat, userLocation.lng)}
+                className="flex-1 py-2 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
+              >
+                <LocateFixed className="w-3.5 h-3.5" />
+                <span>Use My Location</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  playClickSound();
+                  setIsPickingItemLocation(false);
+                }}
+                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-[11px] font-black transition-all cursor-pointer active:scale-95"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Right Map Controls */}
       <div className={`transition-opacity duration-500 ${isMapVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
         <div className="absolute bottom-14 right-4 z-[100] flex flex-col gap-3">
@@ -5652,17 +6030,17 @@ export default function App() {
             <Info className="w-4 h-4 stroke-[2.25px]" />
           </button>
 
-          {/* Phone Menu Icon on top of the World icon (contains Create Gig, Seekers, Shop) */}
+          {/* Phone Menu Icon on top of the World icon (contains Sell Item, Create Gig, Seekers, Shop) */}
           <div ref={phoneMenuRef} className="relative">
             <button
               onClick={() => {
                 playClickSound();
                 setShowPhoneMenu((prev) => !prev);
               }}
-              title="App Menu (Create Gig, Seekers, Shop)"
+              title="App Menu (Sell Item, Create Gig, Seekers, Shop)"
               aria-label="Open Phone Menu"
               className={`w-10 h-10 rounded-full shadow-2xl flex items-center justify-center transition-all border-4 cursor-pointer active:scale-90 ${
-                showPhoneMenu || isPickingGigLocation || showCreateGigModal || viewMode === 'seekers'
+                showPhoneMenu || isPickingGigLocation || isPickingItemLocation || showCreateGigModal || showSellItemModal || viewMode === 'seekers'
                   ? 'bg-slate-950 text-white border-slate-700'
                   : 'bg-white text-slate-900 border-white hover:bg-slate-50'
               }`}
@@ -5671,7 +6049,7 @@ export default function App() {
             </button>
 
             {showPhoneMenu && (
-              <div className="absolute top-0 right-12 z-[120] bg-white/95 backdrop-blur-xl border border-slate-200 rounded-2xl shadow-2xl p-2.5 w-56 animate-in fade-in zoom-in-95 duration-150">
+              <div className="absolute top-0 right-12 z-[120] bg-white/95 backdrop-blur-xl border border-slate-200 rounded-2xl shadow-2xl p-2.5 w-72 sm:w-80 animate-in fade-in zoom-in-95 duration-150">
                 <div className="flex items-center justify-between px-1 pb-1.5 mb-1 border-b border-slate-100">
                   <span className="text-[9px] font-black uppercase tracking-wider text-slate-500">
                     App Shortcuts
@@ -5686,12 +6064,35 @@ export default function App() {
                     <Info className="w-3 h-3" />
                   </button>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-4 gap-1.5">
+                  {/* Sell Item App Icon */}
+                  <button
+                    type="button"
+                    onClick={handleStartSellItem}
+                    className="flex flex-col items-center gap-1 p-1 rounded-xl hover:bg-slate-100 transition-all cursor-pointer active:scale-95"
+                  >
+                    <div
+                      className={`relative w-11 h-11 rounded-2xl flex items-center justify-center shadow-sm transition-all ${
+                        isPickingItemLocation || showSellItemModal
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                      }`}
+                    >
+                      <Tag className="w-5 h-5" />
+                      <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-slate-950 text-white flex items-center justify-center border border-white shadow-sm">
+                        <Plus className="w-2.5 h-2.5 stroke-[3px]" />
+                      </span>
+                    </div>
+                    <span className="text-[9px] font-black text-slate-800 tracking-tight whitespace-nowrap">
+                      Sell Item
+                    </span>
+                  </button>
+
                   {/* Create Gig Post App Icon */}
                   <button
                     type="button"
                     onClick={handleStartCreateGig}
-                    className="flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-slate-100 transition-all cursor-pointer active:scale-95"
+                    className="flex flex-col items-center gap-1 p-1 rounded-xl hover:bg-slate-100 transition-all cursor-pointer active:scale-95"
                   >
                     <div
                       className={`relative w-11 h-11 rounded-2xl flex items-center justify-center shadow-sm transition-all ${
@@ -5718,7 +6119,7 @@ export default function App() {
                       setViewMode((prev) => (prev === 'seekers' ? 'map' : 'seekers'));
                       setShowPhoneMenu(false);
                     }}
-                    className="flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-slate-100 transition-all cursor-pointer active:scale-95"
+                    className="flex flex-col items-center gap-1 p-1 rounded-xl hover:bg-slate-100 transition-all cursor-pointer active:scale-95"
                   >
                     <div
                       className={`w-11 h-11 rounded-2xl flex items-center justify-center shadow-sm transition-all ${
@@ -5742,7 +6143,7 @@ export default function App() {
                       setShowPhoneMenu(false);
                       setShowShopModal(true);
                     }}
-                    className="flex flex-col items-center gap-1 p-1.5 rounded-xl hover:bg-slate-100 transition-all cursor-pointer active:scale-95"
+                    className="flex flex-col items-center gap-1 p-1 rounded-xl hover:bg-slate-100 transition-all cursor-pointer active:scale-95"
                   >
                     <div
                       className={`w-11 h-11 rounded-2xl flex items-center justify-center shadow-sm transition-all ${
@@ -7043,6 +7444,32 @@ export default function App() {
             </div>
 
             <div className="p-4 space-y-3">
+              {/* Views and Interested Stats Bar */}
+              <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 text-slate-700 text-xs font-bold">
+                    <Eye className="w-4 h-4 text-slate-500" />
+                    <span>{selectedGigPost.viewsCount || 1} Views</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-slate-700 text-xs font-bold">
+                    <Heart className={`w-4 h-4 ${(selectedGigPost.interestedUserUids || []).includes(authUser?.uid || '') ? 'text-rose-600 fill-rose-600' : 'text-slate-500'}`} />
+                    <span>{(selectedGigPost.interestedUserUids || []).length} Interested</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleGigInterest(selectedGigPost)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 border ${
+                    (selectedGigPost.interestedUserUids || []).includes(authUser?.uid || '')
+                      ? 'bg-rose-50 text-rose-700 border-rose-300 shadow-sm'
+                      : 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800'
+                  }`}
+                >
+                  <Heart className={`w-3.5 h-3.5 ${(selectedGigPost.interestedUserUids || []).includes(authUser?.uid || '') ? 'fill-current' : ''}`} />
+                  <span>{(selectedGigPost.interestedUserUids || []).includes(authUser?.uid || '') ? 'Interested ✓' : 'Click Interested'}</span>
+                </button>
+              </div>
+
               {/* Owner Block / Notice Banner */}
               {authUser?.uid === selectedGigPost.creatorUid && (
                 <div className="bg-amber-50 border border-amber-200 rounded-2xl p-2.5 flex items-center gap-2 text-amber-950 text-xs font-bold shadow-sm">
@@ -7301,6 +7728,368 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Live Map Item For Sale Detail Modal */}
+      {selectedItemForSale && (
+        <div
+          className="fixed inset-0 z-[235] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-150"
+          onClick={() => setSelectedItemForSale(null)}
+        >
+          <div
+            className="w-full max-w-md bg-white border border-slate-200 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-4 border-b border-slate-200 bg-slate-950 text-white flex items-start justify-between gap-3 shrink-0">
+              <div className="flex items-start gap-3 min-w-0">
+                {selectedItemForSale.sellerSelfieUrl ? (
+                  <img
+                    src={selectedItemForSale.sellerSelfieUrl}
+                    alt={selectedItemForSale.sellerName}
+                    className="w-12 h-12 rounded-2xl object-cover border-2 border-emerald-400 shadow-md shrink-0"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-950 border-2 border-emerald-500/50 flex items-center justify-center text-emerald-300 font-black text-sm shrink-0">
+                    <Tag className="w-5 h-5 text-emerald-400" />
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2 py-0.5 rounded-lg bg-emerald-500 text-slate-950 text-[10px] font-black">
+                      {selectedItemForSale.price}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-lg bg-slate-800 text-slate-200 text-[10px] font-bold">
+                      {selectedItemForSale.category}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                      selectedItemForSale.status === 'sold'
+                        ? 'bg-rose-900/60 text-rose-300 border border-rose-500/30'
+                        : 'bg-emerald-900/60 text-emerald-300 border border-emerald-500/30'
+                    }`}>
+                      {selectedItemForSale.status === 'sold' ? 'Sold' : 'Available'}
+                    </span>
+                  </div>
+                  <h3 className="text-base font-black text-white mt-1 leading-snug truncate">
+                    {selectedItemForSale.title}
+                  </h3>
+                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                    <span className="text-[11px] font-bold text-slate-200">
+                      Seller: {selectedItemForSale.sellerName}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-400/20 text-emerald-300 text-[9px] font-black border border-emerald-400/30">
+                      Condition: {selectedItemForSale.condition}
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      • {formatDistance(calculateDistance(userLocation.lat, userLocation.lng, selectedItemForSale.lat, selectedItemForSale.lng))} away
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => openFeatureInfo('item_detail')}
+                  title="About Marketplace Item Details"
+                  aria-label="About Marketplace Item Details"
+                  className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-emerald-400 flex items-center justify-center shrink-0 cursor-pointer"
+                >
+                  <Info className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedItemForSale(null)}
+                  aria-label="Close item details"
+                  className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center shrink-0 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Scrollable Body */}
+            <div className="p-4 space-y-3 overflow-y-auto">
+              {/* Views and Interested Stats Bar */}
+              <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 text-slate-700 text-xs font-bold">
+                    <Eye className="w-4 h-4 text-slate-500" />
+                    <span>{selectedItemForSale.viewsCount || 1} Views</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-slate-700 text-xs font-bold">
+                    <Heart className={`w-4 h-4 ${(selectedItemForSale.interestedUserUids || []).includes(authUser?.uid || '') ? 'text-rose-600 fill-rose-600' : 'text-slate-500'}`} />
+                    <span>{(selectedItemForSale.interestedUserUids || []).length} Interested</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleItemInterest(selectedItemForSale)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 border ${
+                    (selectedItemForSale.interestedUserUids || []).includes(authUser?.uid || '')
+                      ? 'bg-rose-50 text-rose-700 border-rose-300 shadow-sm'
+                      : 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800'
+                  }`}
+                >
+                  <Heart className={`w-3.5 h-3.5 ${(selectedItemForSale.interestedUserUids || []).includes(authUser?.uid || '') ? 'fill-current' : ''}`} />
+                  <span>{(selectedItemForSale.interestedUserUids || []).includes(authUser?.uid || '') ? 'Interested ✓' : 'Click Interested'}</span>
+                </button>
+              </div>
+
+              {/* Item Photo(s) */}
+              {(() => {
+                const photos = selectedItemForSale.photoUrls && selectedItemForSale.photoUrls.length > 0
+                  ? selectedItemForSale.photoUrls
+                  : selectedItemForSale.photoUrl
+                  ? [selectedItemForSale.photoUrl]
+                  : [];
+                if (photos.length === 0) return null;
+                const currentPhoto = photos[activeItemPhotoIndex] || photos[0];
+
+                return (
+                  <div className="space-y-2">
+                    <div
+                      onClick={() => {
+                        playClickSound();
+                        setFullScreenImageUrl(currentPhoto);
+                      }}
+                      className="relative rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 aspect-video group cursor-pointer shadow-sm"
+                      title="Click to view full screen"
+                    >
+                      <img
+                        src={currentPhoto}
+                        alt={selectedItemForSale.title}
+                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      />
+                      <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <span className="px-3 py-1.5 rounded-xl bg-slate-950/80 backdrop-blur-md text-white text-xs font-black flex items-center gap-1.5 shadow-xl">
+                          <ZoomIn className="w-4 h-4 text-emerald-400" />
+                          <span>View Full Screen</span>
+                        </span>
+                      </div>
+                      <div className="absolute top-2.5 left-2.5 bg-slate-950/80 backdrop-blur-md px-2.5 py-1 rounded-full text-[10px] font-black text-emerald-300 flex items-center gap-1">
+                        <Tag className="w-3 h-3" />
+                        <span>{selectedItemForSale.condition}</span>
+                      </div>
+                      <div className="absolute bottom-2.5 right-2.5 bg-emerald-500 text-slate-950 font-black text-sm px-3 py-1 rounded-xl shadow-lg">
+                        {selectedItemForSale.price}
+                      </div>
+                    </div>
+
+                    {photos.length > 1 && (
+                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                        {photos.map((pUrl, pIdx) => (
+                          <button
+                            key={pIdx}
+                            type="button"
+                            onClick={() => {
+                              playClickSound();
+                              setActiveItemPhotoIndex(pIdx);
+                            }}
+                            className={`w-14 h-14 rounded-xl overflow-hidden border-2 shrink-0 transition-all cursor-pointer ${
+                              activeItemPhotoIndex === pIdx
+                                ? 'border-emerald-500 scale-105 shadow-md'
+                                : 'border-slate-200 opacity-70 hover:opacity-100'
+                            }`}
+                          >
+                            <img src={pUrl} alt={`Thumb ${pIdx + 1}`} className="w-full h-full object-cover" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Owner Notice Banner */}
+              {authUser?.uid === selectedItemForSale.sellerUid && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-2.5 flex items-center gap-2 text-emerald-950 text-xs font-bold shadow-sm">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>👑 You listed this item for sale • Manage your listing below.</span>
+                </div>
+              )}
+
+              {/* Item Description */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-1">
+                <div className="text-[9px] font-black uppercase tracking-wider text-slate-500">
+                  Item Description
+                </div>
+                <p className="text-xs font-medium text-slate-800 leading-relaxed whitespace-pre-line">
+                  {selectedItemForSale.description}
+                </p>
+              </div>
+
+              {/* Location & Contact Info */}
+              <div className="grid grid-cols-1 gap-2 text-xs">
+                <div className="flex items-start gap-2 bg-slate-50 border border-slate-200 rounded-xl p-2.5">
+                  <MapPin className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <div className="text-[9px] font-black uppercase text-slate-500">Pickup Location</div>
+                    <div className="font-bold text-slate-900 break-words">{selectedItemForSale.locationName}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl p-2.5">
+                  <Phone className="w-4 h-4 text-blue-600 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-[9px] font-black uppercase text-slate-500">Seller Contact</div>
+                    <div className="font-bold text-slate-900 truncate">{selectedItemForSale.contactInfo}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons: Owner controls vs Buyer controls */}
+              <div className="space-y-2 pt-1">
+                {authUser?.uid === selectedItemForSale.sellerUid ? (
+                  <>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        aria-label="Edit item listing"
+                        title="Edit item listing"
+                        onClick={() => {
+                          const item = selectedItemForSale;
+                          setEditingItemTarget(item);
+                          setItemDraftLocation({
+                            lat: item.lat,
+                            lng: item.lng,
+                            address: item.locationName,
+                          });
+                          setShowSellItemModal(true);
+                        }}
+                        className="py-2.5 px-3 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                      >
+                        <Pencil className="w-4 h-4" />
+                        <span>Edit</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleMarkItemSold(selectedItemForSale)}
+                        className={`py-2.5 px-2 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 border ${
+                          selectedItemForSale.status === 'sold'
+                            ? 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-800'
+                            : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-800'
+                        }`}
+                      >
+                        <Check className="w-4 h-4 stroke-[2.5px]" />
+                        <span>{selectedItemForSale.status === 'sold' ? 'Available' : 'Sold'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        aria-label="Delete item listing"
+                        title="Delete item listing"
+                        disabled={deletingItemId === selectedItemForSale.itemId}
+                        onClick={() => handleDeleteItemForSale(selectedItemForSale)}
+                        className="py-2.5 px-3 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 active:scale-95"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>{deletingItemId === selectedItemForSale.itemId ? 'Deleting...' : 'Delete'}</span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={`tel:${selectedItemForSale.contactInfo.replace(/[^\d+]/g, '')}`}
+                        className="flex-1 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        <span>Contact</span>
+                      </a>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const item = selectedItemForSale;
+                          setSelectedItemForSale(null);
+                          startNavigationTo(item.lat, item.lng, item.title);
+                        }}
+                        className="flex-1 py-2.5 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
+                      >
+                        <Navigation className="w-3.5 h-3.5" />
+                        <span>Navigate</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          playClickSound();
+                          if (navigator.share) {
+                            try {
+                              await navigator.share({
+                                title: `${selectedItemForSale.title} on TimeGiG`,
+                                text: `${selectedItemForSale.title} for ${selectedItemForSale.price} in ${selectedItemForSale.locationName}`,
+                                url: window.location.href,
+                              });
+                            } catch {
+                              // Share dismissed
+                            }
+                          } else {
+                            await navigator.clipboard.writeText(`${selectedItemForSale.title} - ${selectedItemForSale.price} (${selectedItemForSale.locationName})`);
+                            soundEngine.playSuccessChime();
+                          }
+                        }}
+                        title="Share Item"
+                        aria-label="Share Item"
+                        className="w-10 h-10 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl flex items-center justify-center shrink-0 cursor-pointer active:scale-95"
+                      >
+                        <Share2 className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {isMainAdminAccount && (
+                      <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const item = selectedItemForSale;
+                            setEditingItemTarget(item);
+                            setItemDraftLocation({
+                              lat: item.lat,
+                              lng: item.lng,
+                              address: item.locationName,
+                            });
+                            setShowSellItemModal(true);
+                          }}
+                          className="py-2 px-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded-xl text-[11px] font-black flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                          <span>Admin Edit</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={deletingItemId === selectedItemForSale.itemId}
+                          onClick={() => handleDeleteItemForSale(selectedItemForSale)}
+                          className="py-2 px-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 rounded-xl text-[11px] font-black flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>{deletingItemId === selectedItemForSale.itemId ? 'Deleting...' : 'Admin Delete'}</span>
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sell Item Modal */}
+      <SellItemModal
+        isOpen={showSellItemModal}
+        onClose={() => {
+          setShowSellItemModal(false);
+          setEditingItemTarget(null);
+        }}
+        initialLocation={itemDraftLocation}
+        onPickLocationOnMap={handlePickItemLocationOnMap}
+        userContact={userProfile.contactInfo}
+        onSubmitItem={handleSubmitItemForSale}
+        isSubmitting={isSubmittingItem}
+        onOpenInfo={() => openFeatureInfo('sell_item')}
+        editItem={editingItemTarget}
+      />
 
       {/* Gig Application Circle Loading Modal (Waiting for Gig Owner to Accept - 5 Tries) */}
       {showGigApplicationModal && applyingGigTarget && (
@@ -8100,6 +8889,39 @@ export default function App() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Full Screen Image Modal */}
+      {fullScreenImageUrl && (
+        <div
+          className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/95 backdrop-blur-2xl animate-in fade-in duration-200"
+          onClick={() => {
+            playClickSound();
+            setFullScreenImageUrl(null);
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-5xl max-h-[90vh] w-full flex items-center justify-center"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                playClickSound();
+                setFullScreenImageUrl(null);
+              }}
+              aria-label="Close full screen image"
+              className="absolute -top-12 right-0 w-10 h-10 rounded-full bg-slate-900 border border-slate-700 text-white hover:bg-slate-800 flex items-center justify-center shadow-2xl cursor-pointer z-10 active:scale-95"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <img
+              src={fullScreenImageUrl}
+              alt="Full Screen View"
+              className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl border border-slate-800"
+            />
+          </div>
         </div>
       )}
 

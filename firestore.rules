@@ -435,6 +435,72 @@ service cloud.firestore {
         && (!('cancelledByName' in data) || (data.cancelledByName is string && data.cancelledByName.size() <= 120));
     }
 
+    function isValidItemForSale(data, itemId) {
+      return data.keys().hasAll([
+          'itemId',
+          'sellerUid',
+          'sellerName',
+          'title',
+          'category',
+          'price',
+          'description',
+          'condition',
+          'contactInfo',
+          'locationName',
+          'lat',
+          'lng',
+          'status',
+          'submittedAt',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'itemId',
+          'sellerUid',
+          'sellerName',
+          'sellerSelfieUrl',
+          'title',
+          'category',
+          'price',
+          'description',
+          'condition',
+          'photoUrl',
+          'contactInfo',
+          'locationName',
+          'lat',
+          'lng',
+          'status',
+          'submittedAt',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.itemId is string && data.itemId == itemId && isValidId(data.itemId)
+        && data.sellerUid is string && isValidId(data.sellerUid)
+        && data.sellerName is string && data.sellerName.size() >= 1 && data.sellerName.size() <= 120
+        && (!('sellerSelfieUrl' in data) || (data.sellerSelfieUrl is string && data.sellerSelfieUrl.size() <= 400000))
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 120
+        && data.category is string && data.category in [
+          'Electronics',
+          'Vehicles & Parts',
+          'Home & Furniture',
+          'Tools & Equipment',
+          'Fashion & Clothing',
+          'Sports & Outdoors',
+          'Appliances',
+          'Other'
+        ]
+        && data.price is string && data.price.size() >= 1 && data.price.size() <= 40
+        && data.description is string && data.description.size() >= 3 && data.description.size() <= 500
+        && data.condition is string && data.condition in ['Brand New', 'Like New', 'Good', 'Fair']
+        && (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 600000))
+        && data.contactInfo is string && data.contactInfo.size() >= 3 && data.contactInfo.size() <= 80
+        && data.locationName is string && data.locationName.size() >= 1 && data.locationName.size() <= 200
+        && (data.lat is float || data.lat is int) && data.lat >= -90 && data.lat <= 90
+        && (data.lng is float || data.lng is int) && data.lng >= -180 && data.lng <= 180
+        && data.status is string && data.status in ['active', 'sold']
+        && data.submittedAt is int && data.submittedAt > 0;
+    }
+
     // Bootstrapped main admin record for timegig2026@gmail.com
     match /admins/{userId} {
       allow get: if isValidId(userId) && isOwner(userId);
@@ -980,6 +1046,33 @@ service cloud.firestore {
       allow delete: if isValidId(hireId)
         && isVerifiedUser()
         && (existing().hirerUid == request.auth.uid || isAdmin());
+    }
+
+    // User-listed items for sale displayed at their coordinates on the map
+    match /itemsForSale/{itemId} {
+      allow get: if isValidId(itemId) && isVerifiedUser();
+      allow list: if isVerifiedUser() && resource.data.status in ['active', 'sold'];
+      allow create: if isValidId(itemId)
+        && isVerifiedUser()
+        && isValidItemForSale(incoming(), itemId)
+        && incoming().sellerUid == request.auth.uid
+        && incoming().status == 'active'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && !exists(/databases/$(database)/documents/itemsForSale/$(itemId));
+      allow update: if isValidId(itemId)
+        && isVerifiedUser()
+        && isValidItemForSale(incoming(), itemId)
+        && incoming().itemId == existing().itemId
+        && incoming().sellerUid == existing().sellerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().submittedAt == existing().submittedAt
+        && incoming().updatedAt == request.time
+        && (isOwner(existing().sellerUid) || isAdmin())
+        && incoming().status in ['active', 'sold'];
+      allow delete: if isValidId(itemId)
+        && isVerifiedUser()
+        && (isOwner(existing().sellerUid) || isAdmin());
     }
   }
 }

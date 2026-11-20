@@ -192,6 +192,8 @@ export interface GigPost {
   cancellationReason?: string;
   cancelledByUid?: string;
   cancelledByName?: string;
+  viewsCount?: number;
+  interestedUserUids?: string[];
 }
 
 export interface SeekerProfile {
@@ -227,5 +229,41 @@ export interface SeekerHireRequest {
   destinationAddress: string;
   status: 'waiting' | 'accepted' | 'declined' | 'timeout';
   createdAt: number;
+}
+
+export type ItemCategory =
+  | 'Electronics'
+  | 'Vehicles & Parts'
+  | 'Home & Furniture'
+  | 'Tools & Equipment'
+  | 'Fashion & Clothing'
+  | 'Sports & Outdoors'
+  | 'Appliances'
+  | 'Other';
+
+export type ItemCondition = 'Brand New' | 'Like New' | 'Good' | 'Fair';
+
+export interface ItemForSale {
+  itemId: string;
+  sellerUid: string;
+  sellerName: string;
+  sellerSelfieUrl?: string;
+  title: string;
+  category: ItemCategory;
+  price: string;
+  description: string;
+  condition: ItemCondition;
+  photoUrl?: string;
+  photoUrls?: string[];
+  contactInfo: string;
+  locationName: string;
+  lat: number;
+  lng: number;
+  status: 'active' | 'sold';
+  submittedAt: number;
+  viewsCount?: number;
+  interestedUserUids?: string[];
+  createdAt?: any;
+  updatedAt?: any;
 }
 
