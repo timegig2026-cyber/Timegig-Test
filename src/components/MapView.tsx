@@ -16,6 +16,7 @@ interface MapViewProps {
   flyToTarget?: FlyToTarget | null;
   mapRef: React.MutableRefObject<L.Map | null>;
   onUserInteract?: () => void;
+  onMapClick?: () => void;
   gigs?: GigPost[];
   items?: ItemForSale[];
   onSelectGig?: (gig: GigPost) => void;
@@ -29,6 +30,7 @@ export const MapView: React.FC<MapViewProps> = ({
   flyToTarget,
   mapRef,
   onUserInteract,
+  onMapClick,
   gigs = [],
   items = [],
   onSelectGig,
@@ -42,7 +44,13 @@ export const MapView: React.FC<MapViewProps> = ({
   const routePolylineRef = useRef<L.Polyline | null>(null);
   const isProgrammaticMoveRef = useRef(false);
   const onUserInteractRef = useRef(onUserInteract);
+  const onMapClickRef = useRef(onMapClick);
+  const onSelectGigRef = useRef(onSelectGig);
+  const onSelectItemRef = useRef(onSelectItem);
   onUserInteractRef.current = onUserInteract;
+  onMapClickRef.current = onMapClick;
+  onSelectGigRef.current = onSelectGig;
+  onSelectItemRef.current = onSelectItem;
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
@@ -57,9 +65,17 @@ export const MapView: React.FC<MapViewProps> = ({
       dragging: true,
       touchZoom: true,
       scrollWheelZoom: true,
-      wheelPxPerZoomLevel: 60,
+      wheelDebounceTime: 25,
+      wheelPxPerZoomLevel: 70,
       doubleClickZoom: true,
       boxZoom: true,
+      zoomAnimation: true,
+      fadeAnimation: true,
+      markerZoomAnimation: true,
+      inertia: true,
+      inertiaDeceleration: 3000,
+      easeLinearity: 0.25,
+      preferCanvas: true,
     });
 
     const config = MAP_TILES[selectedTile];
@@ -75,15 +91,22 @@ export const MapView: React.FC<MapViewProps> = ({
     markersLayerRef.current = markersGroup;
 
     map.on('dragstart', () => onUserInteractRef.current?.());
+    map.on('click', () => onMapClickRef.current?.());
     map.on('zoomstart', () => {
       if (!isProgrammaticMoveRef.current) {
         onUserInteractRef.current?.();
       }
     });
 
+    const resizeObserver = new ResizeObserver(() => {
+      map.invalidateSize({ animate: false });
+    });
+    resizeObserver.observe(mapContainerRef.current);
+
     mapRef.current = map;
 
     return () => {
+      resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
       userMarkerRef.current = null;
@@ -96,13 +119,19 @@ export const MapView: React.FC<MapViewProps> = ({
     if (!map || !flyToTarget) return;
     isProgrammaticMoveRef.current = true;
     if (typeof flyToTarget.zoom === 'number') {
-      map.flyTo([flyToTarget.lat, flyToTarget.lng], flyToTarget.zoom, { duration: 1.1 });
+      map.flyTo([flyToTarget.lat, flyToTarget.lng], flyToTarget.zoom, {
+        duration: 0.75,
+        easeLinearity: 0.25,
+      });
     } else {
-      map.panTo([flyToTarget.lat, flyToTarget.lng], { animate: true });
+      map.panTo([flyToTarget.lat, flyToTarget.lng], {
+        animate: true,
+        duration: 0.45,
+      });
     }
     const timer = window.setTimeout(() => {
       isProgrammaticMoveRef.current = false;
-    }, 60);
+    }, 80);
     return () => window.clearTimeout(timer);
   }, [flyToTarget]);
 
@@ -262,7 +291,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
       const marker = L.marker([gig.lat, gig.lng], { icon: gigIcon });
       marker.on('click', () => {
-        onSelectGig?.(gig);
+        onSelectGigRef.current?.(gig);
       });
       group.addLayer(marker);
     });
@@ -297,7 +326,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
       const marker = L.marker([item.lat, item.lng], { icon: itemIcon });
       marker.on('click', () => {
-        onSelectItem?.(item);
+        onSelectItemRef.current?.(item);
       });
       group.addLayer(marker);
     });

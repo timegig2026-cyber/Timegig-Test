@@ -1,6 +1,29 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+html,
+body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+button,
+[role="button"],
+a,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
+.overflow-y-auto,
+.overflow-auto {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
 /* Hide leaflet attribution as requested */
 .leaflet-control-attribution {
   display: none !important;
@@ -57,19 +80,46 @@
   line-height: 1.5 !important;
 }
 
+/* Smooth Map Marker Micro-interactions */
+.custom-gig-marker > div,
+.custom-item-marker > div {
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+  will-change: transform;
+}
+.custom-gig-marker:hover > div,
+.custom-item-marker:hover > div {
+  transform: scale(1.07);
+}
+.custom-gig-marker:active > div,
+.custom-item-marker:active > div {
+  transform: scale(0.96);
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(0.95);
+    opacity: 0.75;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0.2;
+  }
+}
+
 /* Custom Scrollbar for better visibility */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #94a3b8;
-  border-radius: 4px;
+  background: #cbd5e1;
+  border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+  background: #94a3b8;
 }
 
 /* 3D Perspective Map Styles */
@@ -82,11 +132,11 @@
 
 .map-3d-active .leaflet-container {
   transform: rotateX(45deg) scale(1.2);
-  transition: transform 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .leaflet-container {
-  transition: transform 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Floating tools wallpaper animation for subscription boxes */

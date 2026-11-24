@@ -188,7 +188,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[230] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xl animate-in fade-in duration-200"
+      className="fixed inset-0 z-[230] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-150"
       onClick={onClose}
     >
       <div

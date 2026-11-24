@@ -225,6 +225,14 @@ export function App() {
   // Selected map items for details popup & flow
   const [selectedGig, setSelectedGig] = useState<GigPost | null>(null);
   const [selectedItem, setSelectedItem] = useState<ItemForSale | null>(null);
+  const [isEditingGig, setIsEditingGig] = useState(false);
+  const [editGigTitle, setEditGigTitle] = useState('');
+  const [editGigBudget, setEditGigBudget] = useState('');
+  const [editGigDescription, setEditGigDescription] = useState('');
+  const [isEditingItem, setIsEditingItem] = useState(false);
+  const [editItemTitle, setEditItemTitle] = useState('');
+  const [editItemPrice, setEditItemPrice] = useState('');
+  const [editItemDescription, setEditItemDescription] = useState('');
   const [applyingGigId, setApplyingGigId] = useState<string | null>(null);
   const [activeRouteCoords, setActiveRouteCoords] = useState<[number, number][] | null>(null);
   const [ratingValue, setRatingValue] = useState<number>(5);
@@ -435,13 +443,72 @@ export function App() {
     }
   };
 
-  // Splash screen timer for 5 seconds, then direct to Sign Up / Sign In (or Upgrade if already signed in)
+  // Splash screen timer (2s), then direct to Sign Up / Sign In (or Upgrade if already signed in)
   useEffect(() => {
     const timer = window.setTimeout(() => {
       handlePostSplashRedirect();
-    }, 5000);
+    }, 2000);
     return () => window.clearTimeout(timer);
   }, []);
+
+  // Smooth Escape key handling to close the topmost modal, lightbox, menu, or search dropdown
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (fullScreenDoc) {
+        setFullScreenDoc(null);
+      } else if (fullScreenImageUrl) {
+        setFullScreenImageUrl(null);
+      } else if (cancellingGig) {
+        setCancellingGig(null);
+      } else if (selectedGig) {
+        setIsEditingGig(false);
+        setSelectedGig(null);
+      } else if (selectedItem) {
+        setIsEditingItem(false);
+        setSelectedItem(null);
+      } else if (showAuthModal) {
+        setShowAuthModal(false);
+      } else if (showAccountModal) {
+        setShowAccountModal(false);
+      } else if (showPhoneMenu) {
+        setShowPhoneMenu(false);
+      } else if (
+        showTenantModal ||
+        showCreateGigModal ||
+        showSellItemModal ||
+        showReferralsModal ||
+        showSeekersModal ||
+        showProfileModal ||
+        showUpgradeModal ||
+        showSettingsModal
+      ) {
+        closeAllModals();
+      } else if (searchResults.length > 0) {
+        setSearchResults([]);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    fullScreenDoc,
+    fullScreenImageUrl,
+    cancellingGig,
+    selectedGig,
+    selectedItem,
+    showAuthModal,
+    showAccountModal,
+    showPhoneMenu,
+    showTenantModal,
+    showCreateGigModal,
+    showSellItemModal,
+    showReferralsModal,
+    showSeekersModal,
+    showProfileModal,
+    showUpgradeModal,
+    showSettingsModal,
+    searchResults.length,
+  ]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -776,17 +843,65 @@ export function App() {
     });
   };
 
-  // Delete gig
+  // Edit / Delete gig
+  const handleStartEditGig = (gig: GigPost) => {
+    soundEngine.playFeatureClick();
+    setEditGigTitle(gig.title);
+    setEditGigBudget(gig.budget);
+    setEditGigDescription(gig.description);
+    setIsEditingGig(true);
+  };
+
+  const handleSaveEditGig = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedGig || !editGigTitle.trim()) return;
+    soundEngine.playSuccessChime();
+    const updated: GigPost = {
+      ...selectedGig,
+      title: editGigTitle.trim(),
+      budget: editGigBudget.trim() || selectedGig.budget,
+      description: editGigDescription.trim() || selectedGig.description,
+    };
+    setGigs((prev) => prev.map((g) => (g.gigId === updated.gigId ? updated : g)));
+    setSelectedGig(updated);
+    setIsEditingGig(false);
+  };
+
   const handleDeleteGig = (gigId: string) => {
     soundEngine.playFeatureClick();
     setGigs((prev) => prev.filter((g) => g.gigId !== gigId));
+    setIsEditingGig(false);
     setSelectedGig(null);
   };
 
-  // Delete item
+  // Edit / Delete item
+  const handleStartEditItem = (item: ItemForSale) => {
+    soundEngine.playFeatureClick();
+    setEditItemTitle(item.title);
+    setEditItemPrice(item.price);
+    setEditItemDescription(item.description);
+    setIsEditingItem(true);
+  };
+
+  const handleSaveEditItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedItem || !editItemTitle.trim()) return;
+    soundEngine.playSuccessChime();
+    const updated: ItemForSale = {
+      ...selectedItem,
+      title: editItemTitle.trim(),
+      price: editItemPrice.trim() || selectedItem.price,
+      description: editItemDescription.trim() || selectedItem.description,
+    };
+    setItems((prev) => prev.map((i) => (i.itemId === updated.itemId ? updated : i)));
+    setSelectedItem(updated);
+    setIsEditingItem(false);
+  };
+
   const handleDeleteItem = (itemId: string) => {
     soundEngine.playFeatureClick();
     setItems((prev) => prev.filter((i) => i.itemId !== itemId));
+    setIsEditingItem(false);
     setSelectedItem(null);
   };
 
@@ -1107,24 +1222,29 @@ export function App() {
           navigationRouteCoords={activeRouteCoords}
           onSelectGig={(gig) => {
             soundEngine.playFeatureClick();
+            setIsEditingGig(false);
             setSelectedGig(gig);
           }}
           onSelectItem={(item) => {
             soundEngine.playFeatureClick();
+            setIsEditingItem(false);
             setSelectedItem(item);
           }}
           onUserInteract={() => {
             hasInteractedWithMapRef.current = true;
           }}
+          onMapClick={() => {
+            if (searchResults.length > 0) setSearchResults([]);
+          }}
         />
 
-        {/* 5-Second Splash Screen Displaying Only the App Name */}
+        {/* Splash Screen Displaying Only the App Name */}
         {showSplash && (
           <div
-            className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/70 backdrop-blur-3xl animate-in fade-in duration-300 cursor-pointer p-6 text-center"
+            className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200 cursor-pointer p-6 text-center"
             onClick={handlePostSplashRedirect}
           >
-            <h1 className="text-5xl sm:text-6xl font-black text-white tracking-tight drop-shadow-lg animate-in zoom-in-95 duration-300">
+            <h1 className="text-5xl sm:text-6xl font-black text-white tracking-tight drop-shadow-lg animate-in zoom-in-95 duration-200">
               TimeGiG
             </h1>
           </div>
@@ -1133,13 +1253,17 @@ export function App() {
         {/* Top Search Bar */}
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[160] w-11/12 max-w-lg">
           <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+            {isSearching ? (
+              <Loader2 className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-600 animate-spin pointer-events-none" />
+            ) : (
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+            )}
             <input
               type="text"
               placeholder="Search map location..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full min-h-[46px] pl-11 pr-10 py-3 bg-white border border-slate-200 rounded-2xl shadow-2xl text-sm font-semibold text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full min-h-[46px] pl-11 pr-10 py-3 bg-white/95 backdrop-blur-sm border border-slate-200 rounded-2xl shadow-2xl text-sm font-semibold text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-shadow"
             />
             {searchQuery && (
               <button
@@ -1156,13 +1280,13 @@ export function App() {
             )}
 
             {searchResults.length > 0 && (
-              <div className="absolute left-0 right-0 mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden max-h-72 overflow-y-auto z-[170]">
+              <div className="absolute left-0 right-0 mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden max-h-72 overflow-y-auto z-[170] animate-in fade-in slide-in-from-top-1 duration-150">
                 {searchResults.map((item) => (
                   <button
                     key={item.place_id}
                     type="button"
                     onClick={() => handleSelectSuggestion(item.lat, item.lon, item.display_name)}
-                    className="w-full text-left px-4 py-3 text-xs font-semibold text-slate-800 hover:bg-blue-50 transition-colors flex items-center gap-2.5 border-b border-slate-100 last:border-0 cursor-pointer"
+                    className="w-full text-left px-4 py-3 text-xs font-semibold text-slate-800 hover:bg-blue-50 active:bg-blue-100 transition-colors flex items-center gap-2.5 border-b border-slate-100 last:border-0 cursor-pointer"
                   >
                     <Globe className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                     <span className="truncate">{item.display_name}</span>
@@ -1422,7 +1546,7 @@ export function App() {
         {/* Centered App Menu Modal with Heavy Blur Background & White Theme */}
         {showPhoneMenu && (
           <div
-            className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xl animate-in fade-in duration-200"
+            className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-150"
             onClick={() => setShowPhoneMenu(false)}
           >
             <div
@@ -1747,11 +1871,14 @@ export function App() {
         {/* Selected Gig Details Popup Modal with Profile Logo, Edit/Delete, and Acceptance/Completion Flow */}
         {selectedGig && (
           <div
-            className="fixed inset-0 z-[235] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xl"
-            onClick={() => setSelectedGig(null)}
+            className="fixed inset-0 z-[235] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-150"
+            onClick={() => {
+              setIsEditingGig(false);
+              setSelectedGig(null);
+            }}
           >
             <div
-              className="w-full max-w-md bg-white border border-slate-200 rounded-3xl shadow-2xl p-6 text-slate-950 space-y-4 animate-in zoom-in-95 duration-150"
+              className="w-full max-w-md bg-white border border-slate-200 rounded-3xl shadow-2xl p-6 text-slate-950 space-y-4 max-h-[90dvh] overflow-y-auto animate-in zoom-in-95 duration-150"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between border-b border-slate-200 pb-3">
@@ -1776,28 +1903,89 @@ export function App() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setSelectedGig(null)}
+                  onClick={() => {
+                    setIsEditingGig(false);
+                    setSelectedGig(null);
+                  }}
                   className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="space-y-2 text-xs text-slate-700">
-                <p className="leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200 font-medium">{selectedGig.description}</p>
-                <div className="flex justify-between text-slate-500">
-                  <span>Location: {selectedGig.locationName}</span>
-                  <span>Contact: {selectedGig.contactInfo}</span>
+              {isEditingGig ? (
+                <form onSubmit={handleSaveEditGig} className="space-y-3 bg-slate-50 border border-slate-200 rounded-2xl p-3.5">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">Gig Title</label>
+                    <input
+                      type="text"
+                      required
+                      value={editGigTitle}
+                      onChange={(e) => setEditGigTitle(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">Budget / Pay</label>
+                    <input
+                      type="text"
+                      required
+                      value={editGigBudget}
+                      onChange={(e) => setEditGigBudget(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">Description</label>
+                    <textarea
+                      rows={3}
+                      required
+                      value={editGigDescription}
+                      onChange={(e) => setEditGigDescription(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 resize-none"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingGig(false)}
+                      className="flex-1 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl cursor-pointer shadow-sm"
+                    >
+                      Save Changes
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="space-y-2 text-xs text-slate-700">
+                  <p className="leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200 font-medium">{selectedGig.description}</p>
+                  <div className="flex justify-between text-slate-500">
+                    <span>Location: {selectedGig.locationName}</span>
+                    <span>Contact: {selectedGig.contactInfo}</span>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Owner Edit / Delete Controls */}
-              {selectedGig.creatorUid === currentUserEmail && (
+              {selectedGig.creatorUid === currentUserEmail && !isEditingGig && (
                 <div className="flex gap-2 pt-1">
                   <button
                     type="button"
+                    onClick={() => handleStartEditGig(selectedGig)}
+                    className="flex-1 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Edit Gig</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => handleDeleteGig(selectedGig.gigId)}
-                    className="flex-1 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="flex-1 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     <span>Delete Gig</span>
@@ -1897,11 +2085,14 @@ export function App() {
         {/* Selected Item Details Popup Modal with Seller/Owner Star Rating & Buy Action */}
         {selectedItem && (
           <div
-            className="fixed inset-0 z-[235] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xl"
-            onClick={() => setSelectedItem(null)}
+            className="fixed inset-0 z-[235] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-150"
+            onClick={() => {
+              setIsEditingItem(false);
+              setSelectedItem(null);
+            }}
           >
             <div
-              className="w-full max-w-md bg-white border border-slate-200 rounded-3xl shadow-2xl p-6 text-slate-950 space-y-4 animate-in zoom-in-95 duration-150"
+              className="w-full max-w-md bg-white border border-slate-200 rounded-3xl shadow-2xl p-6 text-slate-950 space-y-4 max-h-[90dvh] overflow-y-auto animate-in zoom-in-95 duration-150"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between border-b border-slate-200 pb-3">
@@ -1914,7 +2105,10 @@ export function App() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setSelectedItem(null)}
+                  onClick={() => {
+                    setIsEditingItem(false);
+                    setSelectedItem(null);
+                  }}
                   className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer"
                 >
                   <X className="w-4 h-4" />
@@ -1934,25 +2128,85 @@ export function App() {
                 </div>
               )}
 
-              <div className="space-y-2 text-xs text-slate-700">
-                <p className="leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200 font-medium">{selectedItem.description}</p>
-                <div className="flex justify-between text-slate-500">
-                  <span>Location: {selectedItem.locationName}</span>
-                  <span>Seller: {selectedItem.contactInfo}</span>
+              {isEditingItem ? (
+                <form onSubmit={handleSaveEditItem} className="space-y-3 bg-slate-50 border border-slate-200 rounded-2xl p-3.5">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">Item Title</label>
+                    <input
+                      type="text"
+                      required
+                      value={editItemTitle}
+                      onChange={(e) => setEditItemTitle(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">Price</label>
+                    <input
+                      type="text"
+                      required
+                      value={editItemPrice}
+                      onChange={(e) => setEditItemPrice(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">Description</label>
+                    <textarea
+                      rows={3}
+                      required
+                      value={editItemDescription}
+                      onChange={(e) => setEditItemDescription(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 resize-none"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingItem(false)}
+                      className="flex-1 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl cursor-pointer shadow-sm"
+                    >
+                      Save Changes
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="space-y-2 text-xs text-slate-700">
+                  <p className="leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200 font-medium">{selectedItem.description}</p>
+                  <div className="flex justify-between text-slate-500">
+                    <span>Location: {selectedItem.locationName}</span>
+                    <span>Seller: {selectedItem.contactInfo}</span>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Only Seller/Owner can Delete and Complete Item Sale with Star Rating */}
-              {selectedItem.sellerUid === currentUserEmail ? (
+              {/* Only Seller/Owner can Edit, Delete and Complete Item Sale with Star Rating */}
+              {selectedItem.sellerUid === currentUserEmail && !isEditingItem ? (
                 <div className="space-y-3 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteItem(selectedItem.itemId)}
-                    className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete Item Listing</span>
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleStartEditItem(selectedItem)}
+                      className="flex-1 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>Edit Item</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteItem(selectedItem.itemId)}
+                      className="flex-1 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Item</span>
+                    </button>
+                  </div>
 
                   <div className="space-y-2 bg-slate-50 border border-slate-200 p-3.5 rounded-2xl">
                     <div className="text-xs font-bold text-slate-800">Rate Buyer on Transaction (Owner Only):</div>
@@ -2083,7 +2337,7 @@ export function App() {
         {/* Full-Screen Document / Verification Lightbox Viewer for Tenant */}
         {fullScreenDoc && (
           <div
-            className="fixed inset-0 z-[320] flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-2xl p-4 animate-in fade-in duration-200"
+            className="fixed inset-0 z-[320] flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-md p-4 animate-in fade-in duration-150"
             onClick={() => setFullScreenDoc(null)}
           >
             <div
@@ -2131,7 +2385,7 @@ export function App() {
         {/* Full-Screen Image Lightbox Viewer for Items */}
         {fullScreenImageUrl && (
           <div
-            className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/90 backdrop-blur-2xl p-4"
+            className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4 animate-in fade-in duration-150"
             onClick={() => setFullScreenImageUrl(null)}
           >
             <div className="relative max-w-4xl max-h-[90vh] overflow-hidden rounded-3xl shadow-2xl">
@@ -2149,7 +2403,7 @@ export function App() {
 
         {showAccountModal && authUser && (
           <div
-            className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xl"
+            className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-150"
             role="dialog"
             aria-modal="true"
             aria-labelledby="account-modal-title"

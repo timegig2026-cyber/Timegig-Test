@@ -44,7 +44,7 @@ export const SellItemModal: React.FC<SellItemModalProps> = ({
   const [price, setPrice] = useState('250');
   const [description, setDescription] = useState('');
   const [contactInfo, setContactInfo] = useState(currentUserEmail || '');
-  const [locationName, setLocationName] = useState('V&A Waterfront');
+  const [locationName, setLocationName] = useState('Current Map Location');
   const [lat, setLat] = useState(userLocation.lat);
   const [lng, setLng] = useState(userLocation.lng);
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
@@ -56,6 +56,16 @@ export const SellItemModal: React.FC<SellItemModalProps> = ({
   const [showInfo, setShowInfo] = useState(false);
 
   useEffect(() => {
+    if (isOpen) {
+      setLat(userLocation.lat);
+      setLng(userLocation.lng);
+      if (!contactInfo && currentUserEmail) {
+        setContactInfo(currentUserEmail);
+      }
+    }
+  }, [isOpen, currentUserEmail, userLocation.lat, userLocation.lng]);
+
+  useEffect(() => {
     if (!locationName || locationName.trim().length < 2) {
       setLocationSuggestions([]);
       return;
@@ -63,7 +73,7 @@ export const SellItemModal: React.FC<SellItemModalProps> = ({
     const timer = window.setTimeout(async () => {
       const results = await searchLocations(locationName);
       setLocationSuggestions(results);
-    }, 300);
+    }, 250);
     return () => window.clearTimeout(timer);
   }, [locationName]);
 
@@ -122,7 +132,7 @@ export const SellItemModal: React.FC<SellItemModalProps> = ({
   return (
     <>
       <div
-        className="fixed inset-0 z-[230] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xl animate-in fade-in duration-200"
+        className="fixed inset-0 z-[230] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-150"
         onClick={onClose}
       >
         <div
@@ -340,7 +350,7 @@ export const SellItemModal: React.FC<SellItemModalProps> = ({
       {/* Location Picker Overlay rendered on top without unmounting SellItemModal */}
       {showFullLocationPicker && (
         <div
-          className="fixed inset-0 z-[250] flex flex-col bg-slate-950/70 backdrop-blur-2xl p-4 sm:p-8 animate-in fade-in duration-200"
+          className="fixed inset-0 z-[250] flex flex-col bg-slate-950/70 backdrop-blur-md p-4 sm:p-8 animate-in fade-in duration-150"
           onClick={() => setShowFullLocationPicker(false)}
         >
           <div
