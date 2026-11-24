@@ -1,89 +1,46 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
-import 'leaflet-polylinedecorator';
-import { GeoLocationData, SavedPin, MapTileStyle, GigPost, ItemForSale } from '../types';
-import { MAP_TILES, calculateDistance, formatDistance } from '../utils/geo';
-
-const escapeHtml = (value: string): string =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-import realisticDollImg from '../assets/images/realistic_3d_doll_1794546790352.jpg';
-
-// Extend Leaflet types for polylinedecorator
-declare module 'leaflet' {
-  export function polylineDecorator(
-    paths: L.Polyline | L.Polygon | L.Polyline[] | L.Polygon[],
-    options?: any
-  ): L.LayerGroup;
-}
+import { GeoLocationData, MapTileStyle, GigPost, ItemForSale } from '../types';
+import { MAP_TILES } from '../utils/geo';
 
 interface FlyToTarget {
   lat: number;
   lng: number;
   zoom?: number;
-  bounds?: Array<[number, number]>;
   timestamp: number;
 }
 
 interface MapViewProps {
   userLocation: GeoLocationData;
-  savedPins: SavedPin[];
-  selectedTile: MapTileStyle;
-  onMapClick: (lat: number, lng: number) => void;
-  onOpenAddPinAt: (lat: number, lng: number, address?: string) => void;
-  trackingTrail: Array<[number, number]>;
+  selectedTile?: MapTileStyle;
   flyToTarget?: FlyToTarget | null;
   mapRef: React.MutableRefObject<L.Map | null>;
-  is3D?: boolean;
-  routePath?: [number, number][] | null;
-  destination?: { lat: number; lng: number; name: string } | null;
   onUserInteract?: () => void;
-  gigPosts?: GigPost[];
-  onSelectGigPost?: (gig: GigPost) => void;
-  isPickingGigLocation?: boolean;
-  itemsForSale?: ItemForSale[];
+  gigs?: GigPost[];
+  items?: ItemForSale[];
+  onSelectGig?: (gig: GigPost) => void;
   onSelectItem?: (item: ItemForSale) => void;
-  isPickingItemLocation?: boolean;
-  userSelfieUrl?: string;
+  navigationRouteCoords?: [number, number][] | null;
 }
 
 export const MapView: React.FC<MapViewProps> = ({
   userLocation,
-  savedPins,
-  selectedTile,
-  onMapClick,
-  onOpenAddPinAt,
-  trackingTrail,
+  selectedTile = 'satellite',
   flyToTarget,
   mapRef,
-  is3D,
-  routePath,
-  destination,
   onUserInteract,
-  gigPosts = [],
-  onSelectGigPost,
-  isPickingGigLocation = false,
-  itemsForSale = [],
+  gigs = [],
+  items = [],
+  onSelectGig,
   onSelectItem,
-  isPickingItemLocation = false,
-  userSelfieUrl = '',
+  navigationRouteCoords,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
-  const markersGroupRef = useRef<L.LayerGroup | null>(null);
-  const trailPolylineRef = useRef<L.Polyline | null>(null);
-  const routeLayerRef = useRef<L.LayerGroup | null>(null);
+  const userMarkerRef = useRef<L.Marker | null>(null);
+  const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const routePolylineRef = useRef<L.Polyline | null>(null);
   const isProgrammaticMoveRef = useRef(false);
-  const onMapClickRef = useRef(onMapClick);
-  onMapClickRef.current = onMapClick;
-  const onSelectGigPostRef = useRef(onSelectGigPost);
-  onSelectGigPostRef.current = onSelectGigPost;
-  const onSelectItemRef = useRef(onSelectItem);
-  onSelectItemRef.current = onSelectItem;
   const onUserInteractRef = useRef(onUserInteract);
   onUserInteractRef.current = onUserInteract;
 
@@ -113,553 +70,266 @@ export const MapView: React.FC<MapViewProps> = ({
     }).addTo(map);
 
     tileLayerRef.current = tileLayer;
-    markersGroupRef.current = L.layerGroup().addTo(map);
-    routeLayerRef.current = L.layerGroup().addTo(map);
 
-    map.on('click', (e: L.LeafletMouseEvent) => onMapClickRef.current(e.latlng.lat, e.latlng.lng));
+    const markersGroup = L.layerGroup().addTo(map);
+    markersLayerRef.current = markersGroup;
+
     map.on('dragstart', () => onUserInteractRef.current?.());
     map.on('zoomstart', () => {
       if (!isProgrammaticMoveRef.current) {
         onUserInteractRef.current?.();
       }
     });
+
     mapRef.current = map;
 
     return () => {
       map.remove();
       mapRef.current = null;
+      userMarkerRef.current = null;
+      markersLayerRef.current = null;
     };
   }, []);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
-
-    const prevLayer = tileLayerRef.current;
-    const config = MAP_TILES[selectedTile];
-    const nextLayer = L.tileLayer(config.url, {
-      maxZoom: config.maxZoom,
-      maxNativeZoom: config.maxNativeZoom ?? config.maxZoom,
-      keepBuffer: 4,
-    });
-
-    // Skip if already showing the exact same tile URL
-    if (prevLayer && (prevLayer as any)._url === config.url) {
-      return;
-    }
-
-    nextLayer.addTo(map);
-    tileLayerRef.current = nextLayer;
-
-    let removed = false;
-    const cleanupPrev = () => {
-      if (removed) return;
-      removed = true;
-      if (prevLayer && map.hasLayer(prevLayer)) {
-        map.removeLayer(prevLayer);
-      }
-    };
-
-    nextLayer.once('load', cleanupPrev);
-    const fallbackTimer = window.setTimeout(cleanupPrev, 2500);
-
-    return () => {
-      window.clearTimeout(fallbackTimer);
-      nextLayer.off('load', cleanupPrev);
-      cleanupPrev();
-    };
-  }, [selectedTile]);
-
-  useEffect(() => {
-    const map = mapRef.current;
     if (!map || !flyToTarget) return;
     isProgrammaticMoveRef.current = true;
-    if (flyToTarget.bounds && flyToTarget.bounds.length > 1) {
-      map.fitBounds(L.latLngBounds(flyToTarget.bounds), {
-        paddingTopLeft: [40, 180],
-        paddingBottomRight: [60, 100],
-        maxZoom: 16,
-        animate: true,
-      });
-    } else if (typeof flyToTarget.zoom === 'number') {
-      map.flyTo([flyToTarget.lat, flyToTarget.lng], flyToTarget.zoom, { duration: 1.2 });
+    if (typeof flyToTarget.zoom === 'number') {
+      map.flyTo([flyToTarget.lat, flyToTarget.lng], flyToTarget.zoom, { duration: 1.1 });
     } else {
       map.panTo([flyToTarget.lat, flyToTarget.lng], { animate: true });
     }
     const timer = window.setTimeout(() => {
       isProgrammaticMoveRef.current = false;
-    }, 50);
+    }, 60);
     return () => window.clearTimeout(timer);
   }, [flyToTarget]);
 
+  // Update user location marker
   useEffect(() => {
     const map = mapRef.current;
-    const group = markersGroupRef.current;
-    const routeLayer = routeLayerRef.current;
-    if (!map || !group || !routeLayer) return;
+    if (!map) return;
 
+    const locationIcon = L.divIcon({
+      className: 'custom-user-location-marker',
+      html: `
+        <div style="
+          position: relative;
+          width: 28px;
+          height: 28px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        ">
+          <div style="
+            position: absolute;
+            inset: -4px;
+            border-radius: 50%;
+            background: rgba(37, 99, 235, 0.3);
+            animation: pulse 2s infinite;
+          "></div>
+          <div style="
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #2563eb;
+            border: 3px solid #ffffff;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.5);
+          "></div>
+        </div>
+      `,
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
+    });
+
+    if (userMarkerRef.current) {
+      userMarkerRef.current.setLatLng([userLocation.lat, userLocation.lng]);
+    } else {
+      userMarkerRef.current = L.marker([userLocation.lat, userLocation.lng], {
+        icon: locationIcon,
+      }).addTo(map);
+    }
+  }, [userLocation.lat, userLocation.lng]);
+
+  // Update Gigs and Items markers on map with gorgeous attractive styling
+  useEffect(() => {
+    const group = markersLayerRef.current;
+    if (!group) return;
     group.clearLayers();
-    routeLayer.clearLayers();
 
-    // 1. Trail
-    if (trackingTrail.length > 1) {
-      if (trailPolylineRef.current) map.removeLayer(trailPolylineRef.current);
-      trailPolylineRef.current = L.polyline(trackingTrail, { color: '#3b82f6', weight: 4, opacity: 0.7, dashArray: '6, 6' }).addTo(map);
-    }
-
-    // 2. Arrow Route
-    if (routePath && routePath.length > 1) {
-      const polyline = L.polyline(routePath, { color: '#2563eb', weight: 4, opacity: 0.3 });
-      routeLayer.addLayer(polyline);
-
-      const decorator = L.polylineDecorator(polyline, {
-        patterns: [
-          {
-            offset: 25,
-            repeat: 50,
-            symbol: L.Symbol.arrowHead({
-              pixelSize: 15,
-              polygon: false,
-              pathOptions: { stroke: true, color: '#2563eb', weight: 3, opacity: 1 }
-            })
-          }
-        ]
-      });
-      routeLayer.addLayer(decorator);
-    }
-
-    // 3. User Marker (Approved Face Selfie Avatar on Map, or 3D Doll Fallback before approval)
-    const userAvatarIcon = userSelfieUrl
-      ? L.divIcon({
-          className: 'custom-user-selfie-marker',
-          html: `
-            <div style="
-              position: relative;
-              width: 38px;
-              height: 44px;
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              justify-content: flex-end;
-              pointer-events: auto;
-            ">
-              <div style="
-                position: relative;
-                width: 36px;
-                height: 36px;
-                border-radius: 50%;
-                background: #ffffff;
-                border: 2.5px solid #10b981;
-                box-shadow: 0 6px 16px rgba(16, 185, 129, 0.45), 0 0 0 3px rgba(255, 255, 255, 0.95);
-                overflow: hidden;
-                z-index: 2;
-              ">
-                <img
-                  src="${escapeHtml(userSelfieUrl)}"
-                  alt="Verified User Face Selfie"
-                  referrerpolicy="no-referrer"
-                  style="
-                    width: 100%;
-                    height: 100%;
-                    object-fit: cover;
-                    display: block;
-                  "
-                />
-              </div>
-              <div style="
-                position: absolute;
-                bottom: 5px;
-                right: 0px;
-                width: 10px;
-                height: 10px;
-                background: #10b981;
-                border: 2px solid #ffffff;
-                border-radius: 50%;
-                box-shadow: 0 1px 4px rgba(16, 185, 129, 0.8);
-                z-index: 3;
-              "></div>
-              <div style="
-                width: 18px;
-                height: 6px;
-                background: radial-gradient(ellipse at center, rgba(16, 185, 129, 0.5) 0%, rgba(15, 23, 42, 0.25) 60%, transparent 100%);
-                border-radius: 50%;
-                margin-top: 1px;
-                z-index: 1;
-              "></div>
-            </div>
-          `,
-          iconSize: [38, 44],
-          iconAnchor: [19, 41],
-        })
-      : L.divIcon({
-          className: 'custom-user-doll-marker',
-          html: `
-            <div style="
-              position: relative;
-              width: 24px;
-              height: 32px;
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              justify-content: flex-end;
-              pointer-events: auto;
-            ">
-              <div style="
-                position: relative;
-                width: 20px;
-                height: 26px;
-                border-radius: 10px;
-                background: radial-gradient(circle at 35% 20%, #ffffff 0%, #f1f5f9 100%);
-                border: 1.5px solid #2563eb;
-                box-shadow: 0 5px 10px rgba(15, 23, 42, 0.4), 0 1px 4px rgba(37, 99, 235, 0.35), inset 0 1px 2px rgba(255, 255, 255, 0.9);
-                overflow: hidden;
-                transform: perspective(400px) rotateX(6deg);
-                z-index: 2;
-              ">
-                <img
-                  src="${realisticDollImg}"
-                  alt="3D User Doll"
-                  referrerpolicy="no-referrer"
-                  style="
-                    width: 100%;
-                    height: 100%;
-                    object-fit: cover;
-                    object-position: center 12%;
-                    transform: scale(1.18);
-                    display: block;
-                  "
-                />
-                <div style="
-                  position: absolute;
-                  inset: 0;
-                  border-radius: 9px;
-                  box-shadow: inset 0 -4px 6px rgba(15, 23, 42, 0.14);
-                  pointer-events: none;
-                "></div>
-              </div>
-              <div style="
-                position: absolute;
-                bottom: 3px;
-                right: 1px;
-                width: 6px;
-                height: 6px;
-                background: #10b981;
-                border: 1px solid #ffffff;
-                border-radius: 50%;
-                box-shadow: 0 1px 3px rgba(16, 185, 129, 0.7);
-                z-index: 3;
-              "></div>
-              <div style="
-                width: 14px;
-                height: 5px;
-                background: radial-gradient(ellipse at center, rgba(37, 99, 235, 0.45) 0%, rgba(15, 23, 42, 0.25) 60%, transparent 100%);
-                border-radius: 50%;
-                margin-top: -2px;
-                box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.14);
-                z-index: 1;
-              "></div>
-            </div>
-          `,
-          iconSize: [24, 32],
-          iconAnchor: [12, 30],
-        });
-    group.addLayer(
-      L.marker([userLocation.lat, userLocation.lng], { icon: userAvatarIcon }).bindPopup(
-        userSelfieUrl
-          ? '<b>Your Approved Profile</b><br/>Verified Face Selfie on Map'
-          : '<b>Your Current Location</b><br/>3D Active Navigator'
-      )
-    );
-
-    // 4. Saved Pins (Deep 3D Pin/Bubble)
-    savedPins.forEach((pin) => {
-      const pinBubbleIcon = L.divIcon({
-        className: 'custom-pin-bubble',
-        html: `
-          <div style="position: relative; width: 40px; height: 40px;">
-            <div style="
-              background: radial-gradient(circle at 30% 30%, #ef4444, #991b1b); 
-              width: 40px; 
-              height: 40px; 
-              border-radius: 50% 50% 50% 0; 
-              border: 3px solid #ffffff; 
-              box-shadow: 0 12px 24px rgba(0,0,0,0.5);
-              display: flex; 
-              align-items: center; 
-              justify-content: center;
-              transform: rotate(-45deg) perspective(500px) rotateX(10deg);
-              transition: transform 0.3s ease;
-            ">
-              <div style="width: 12px; height: 12px; background: #ffffff; border-radius: 50%; transform: rotate(45deg); box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);"></div>
-            </div>
-            <div style="
-              width: 16px;
-              height: 4px;
-              background: rgba(0,0,0,0.2);
-              border-radius: 50%;
-              position: absolute;
-              bottom: -6px;
-              left: 12px;
-              filter: blur(2px);
-            "></div>
-          </div>
-        `,
-        iconSize: [40, 40],
-        iconAnchor: [20, 40],
-      });
-      const dist = calculateDistance(userLocation.lat, userLocation.lng, pin.lat, pin.lng);
-      group.addLayer(L.marker([pin.lat, pin.lng], { icon: pinBubbleIcon }).bindPopup(`<b>${pin.title}</b><br/>${formatDistance(dist)} away`));
-    });
-
-    // 5. Active Navigation Destination Marker
-    if (destination) {
-      const destIcon = L.divIcon({
-        className: 'custom-destination-marker',
-        html: `
-          <div style="position: relative; width: 44px; height: 44px;">
-            <div style="
-              background: linear-gradient(135deg, #10b981, #059669);
-              width: 40px;
-              height: 40px;
-              border-radius: 50% 50% 50% 0;
-              border: 3px solid #ffffff;
-              box-shadow: 0 10px 25px rgba(16,185,129,0.55);
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              transform: rotate(-45deg);
-            ">
-              <div style="width: 14px; height: 14px; background: #ffffff; border-radius: 50%; transform: rotate(45deg);"></div>
-            </div>
-          </div>
-        `,
-        iconSize: [44, 44],
-        iconAnchor: [20, 40],
-      });
-      const dist = calculateDistance(userLocation.lat, userLocation.lng, destination.lat, destination.lng);
-      group.addLayer(
-        L.marker([destination.lat, destination.lng], { icon: destIcon })
-          .bindPopup(`<b>Destination: ${escapeHtml(destination.name)}</b><br/>${formatDistance(dist)} away`)
-      );
-    }
-
-    // 6. Live Gig Post Markers
-    gigPosts.forEach((gig) => {
-      if (gig.status !== 'active') return;
-      const safeTitle = escapeHtml(gig.title);
-      const safeBudget = escapeHtml(gig.budget);
-      const safeCategory = escapeHtml(gig.category);
-      const ownerSelfieImg = gig.creatorSelfieUrl
-        ? `<div style="
-            width: 22px;
-            height: 22px;
-            border-radius: 50%;
-            overflow: hidden;
-            border: 1.5px solid #ffffff;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.4);
-            flex-shrink: 0;
-            background: #334155;
-          ">
-            <img src="${escapeHtml(gig.creatorSelfieUrl)}" alt="Owner Selfie" style="width: 100%; height: 100%; object-fit: cover;" />
-          </div>`
-        : `<div style="
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background: #334155;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 10px;
-            color: #cbd5e1;
-            font-weight: 900;
-            flex-shrink: 0;
-            border: 1px solid #64748b;
-          ">👤</div>`;
-
+    // Add Gig markers shaped into realistic money banknotes
+    gigs.forEach((gig) => {
       const gigIcon = L.divIcon({
-        className: 'custom-gig-post-marker',
+        className: 'custom-gig-marker',
         html: `
           <div style="
+            position: relative;
             display: flex;
             flex-direction: column;
             align-items: center;
             cursor: pointer;
-            transform: translateY(-4px);
+            filter: drop-shadow(0 6px 14px rgba(0,0,0,0.55));
+            transform-origin: bottom center;
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
           ">
+            <!-- Banknote / Money Bill -->
             <div style="
-              background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-              color: #ffffff;
-              border: 2px solid #f59e0b;
-              border-radius: 16px;
-              padding: 3px 8px 3px 5px;
-              box-shadow: 0 10px 22px rgba(15, 23, 42, 0.45), 0 0 0 3px rgba(245, 158, 11, 0.25);
+              position: relative;
+              width: 88px;
+              height: 44px;
+              background: linear-gradient(135deg, #134e4a 0%, #15803d 45%, #166534 80%, #0f3d23 100%);
+              border: 2px solid #86efac;
+              border-radius: 6px;
+              box-shadow: inset 0 0 0 1.5px #064e3b, 0 3px 0 #0d3820, 0 4px 1px rgba(0,0,0,0.3);
               display: flex;
               align-items: center;
-              gap: 6px;
-              white-space: nowrap;
-              max-width: 195px;
+              justify-content: space-between;
+              padding: 2px 6px;
+              color: #f0fdf4;
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              box-sizing: border-box;
             ">
-              ${ownerSelfieImg}
-              <span style="
-                background: #f59e0b;
-                color: #0f172a;
-                font-size: 9px;
-                font-weight: 900;
-                padding: 1px 5px;
-                border-radius: 6px;
-                letter-spacing: 0.02em;
-              ">${safeBudget}</span>
-              <span style="
-                font-size: 10px;
-                font-weight: 800;
+              <!-- Corner currency marks -->
+              <span style="font-size: 8px; font-weight: 900; color: #bbf7d0; position: absolute; top: 2px; left: 4px; line-height: 1;">$</span>
+              <span style="font-size: 8px; font-weight: 900; color: #bbf7d0; position: absolute; top: 2px; right: 4px; line-height: 1;">$</span>
+              <span style="font-size: 8px; font-weight: 900; color: #bbf7d0; position: absolute; bottom: 2px; left: 4px; line-height: 1;">$</span>
+              <span style="font-size: 8px; font-weight: 900; color: #bbf7d0; position: absolute; bottom: 2px; right: 4px; line-height: 1;">$</span>
+
+              <!-- Left decorative bill medallion -->
+              <div style="
+                width: 22px;
+                height: 22px;
+                border-radius: 50%;
+                border: 1.5px dashed #86efac;
+                background: radial-gradient(circle, rgba(6,78,59,0.8) 0%, rgba(2,44,34,0.95) 100%);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 12px;
+                flex-shrink: 0;
+                box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);
+              ">
+                💵
+              </div>
+
+              <!-- Center Money Amount / Title -->
+              <div style="
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                padding: 0 4px;
                 overflow: hidden;
-                text-overflow: ellipsis;
-                max-width: 100px;
-              ">${safeTitle}</span>
+              ">
+                <span style="
+                  font-size: 7px;
+                  font-weight: 800;
+                  text-transform: uppercase;
+                  letter-spacing: 0.6px;
+                  color: #a7f3d0;
+                  line-height: 1;
+                  margin-bottom: 2px;
+                ">GIG PAY</span>
+                <span style="
+                  font-size: 13px;
+                  font-weight: 900;
+                  color: #ffffff;
+                  text-shadow: 0 1px 3px rgba(0,0,0,0.85);
+                  letter-spacing: -0.3px;
+                  line-height: 1;
+                  white-space: nowrap;
+                ">${gig.budget}</span>
+              </div>
             </div>
+
+            <!-- Money Pointer Arrow -->
             <div style="
-              width: 10px;
-              height: 10px;
-              background: #f59e0b;
-              border: 2px solid #ffffff;
-              border-radius: 50%;
-              margin-top: 2px;
-              box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+              width: 0;
+              height: 0;
+              border-left: 6px solid transparent;
+              border-right: 6px solid transparent;
+              border-top: 6px solid #134e4a;
+              margin-top: -1px;
+              filter: drop-shadow(0 2px 2px rgba(0,0,0,0.3));
             "></div>
           </div>
         `,
-        iconSize: [180, 44],
-        iconAnchor: [90, 42],
+        iconSize: [88, 50],
+        iconAnchor: [44, 50],
       });
-      const dist = calculateDistance(userLocation.lat, userLocation.lng, gig.lat, gig.lng);
+
       const marker = L.marker([gig.lat, gig.lng], { icon: gigIcon });
-      marker.on('click', (e: L.LeafletMouseEvent) => {
-        L.DomEvent.stopPropagation(e);
-        if (onSelectGigPostRef.current) {
-          onSelectGigPostRef.current(gig);
-        }
+      marker.on('click', () => {
+        onSelectGig?.(gig);
       });
-      if (!onSelectGigPostRef.current) {
-        marker.bindPopup(
-          `<b>${safeTitle}</b><br/>${safeCategory} • ${safeBudget}<br/>${formatDistance(dist)} away`
-        );
-      }
       group.addLayer(marker);
     });
 
-    // 7. Live Items for Sale Markers (3D Marketplace Pins)
-    itemsForSale.forEach((item) => {
-      if (item.status !== 'active') return;
-      const safeTitle = escapeHtml(item.title);
-      const safePrice = escapeHtml(item.price);
-      const safeCategory = escapeHtml(item.category);
-      const safeCondition = escapeHtml(item.condition);
-
-      const photoThumbnail = item.photoUrl
-        ? `<div style="
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            overflow: hidden;
-            border: 1.5px solid #ffffff;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.4);
-            flex-shrink: 0;
-            background: #064e3b;
-          ">
-            <img src="${escapeHtml(item.photoUrl)}" alt="${safeTitle}" style="width: 100%; height: 100%; object-fit: cover;" />
-          </div>`
-        : `<div style="
-            width: 22px;
-            height: 22px;
-            border-radius: 50%;
-            background: #064e3b;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 11px;
-            flex-shrink: 0;
-            border: 1.5px solid #34d399;
-          ">🏷️</div>`;
-
+    // Add Item markers (attractive emerald gradient badge)
+    items.forEach((item) => {
       const itemIcon = L.divIcon({
-        className: 'custom-item-sale-marker',
+        className: 'custom-item-marker',
         html: `
           <div style="
+            background: linear-gradient(135deg, #059669 0%, #047857 100%);
+            color: #ffffff;
+            font-weight: 900;
+            font-size: 11px;
+            padding: 6px 10px;
+            border-radius: 24px;
+            border: 2.5px solid #ffffff;
+            box-shadow: 0 6px 16px rgba(5, 150, 105, 0.45);
             display: flex;
-            flex-direction: column;
             align-items: center;
+            gap: 4px;
+            white-space: nowrap;
             cursor: pointer;
-            transform: translateY(-4px);
           ">
-            <div style="
-              background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
-              color: #ffffff;
-              border: 2px solid #34d399;
-              border-radius: 16px;
-              padding: 3px 8px 3px 5px;
-              box-shadow: 0 10px 22px rgba(6, 78, 59, 0.5), 0 0 0 3px rgba(52, 211, 153, 0.25);
-              display: flex;
-              align-items: center;
-              gap: 6px;
-              white-space: nowrap;
-              max-width: 210px;
-            ">
-              ${photoThumbnail}
-              <span style="
-                background: #10b981;
-                color: #ffffff;
-                font-size: 9px;
-                font-weight: 900;
-                padding: 1px 5px;
-                border-radius: 6px;
-                letter-spacing: 0.02em;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-              ">${safePrice}</span>
-              <span style="
-                font-size: 10px;
-                font-weight: 800;
-                color: #ffffff;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                max-width: 105px;
-              ">${safeTitle}</span>
-            </div>
-            <div style="
-              width: 10px;
-              height: 10px;
-              background: #10b981;
-              border: 2px solid #ffffff;
-              border-radius: 50%;
-              margin-top: 2px;
-              box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
-            "></div>
+            <span>🏷️</span>
+            <span>${item.price}</span>
           </div>
         `,
-        iconSize: [190, 44],
-        iconAnchor: [95, 42],
+        iconSize: [75, 32],
+        iconAnchor: [37, 16],
       });
 
-      const dist = calculateDistance(userLocation.lat, userLocation.lng, item.lat, item.lng);
       const marker = L.marker([item.lat, item.lng], { icon: itemIcon });
-      marker.on('click', (e: L.LeafletMouseEvent) => {
-        L.DomEvent.stopPropagation(e);
-        if (onSelectItemRef.current) {
-          onSelectItemRef.current(item);
-        }
+      marker.on('click', () => {
+        onSelectItem?.(item);
       });
-      if (!onSelectItemRef.current) {
-        marker.bindPopup(
-          `<b>${safeTitle} • ${safePrice}</b><br/>${safeCategory} • ${safeCondition}<br/>${formatDistance(dist)} away`
-        );
-      }
       group.addLayer(marker);
     });
-  }, [userLocation, userSelfieUrl, savedPins, trackingTrail, routePath, destination, gigPosts, itemsForSale]);
+  }, [gigs, items]);
+
+  // Render navigation route line if active
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (routePolylineRef.current) {
+      routePolylineRef.current.remove();
+      routePolylineRef.current = null;
+    }
+
+    if (navigationRouteCoords && navigationRouteCoords.length > 0) {
+      const polyline = L.polyline(navigationRouteCoords, {
+        color: '#2563eb',
+        weight: 6,
+        opacity: 0.85,
+        lineCap: 'round',
+        lineJoin: 'round',
+      }).addTo(map);
+
+      routePolylineRef.current = polyline;
+      map.fitBounds(polyline.getBounds(), { padding: [60, 60], maxZoom: 16 });
+    }
+  }, [navigationRouteCoords]);
 
   return (
-    <div className={`flex-1 h-full w-full relative z-0 map-perspective-container ${is3D ? 'map-3d-active' : ''} ${isPickingGigLocation || isPickingItemLocation ? 'cursor-crosshair' : ''}`}>
-      <div ref={mapContainerRef} className={`h-full w-full ${isPickingGigLocation || isPickingItemLocation ? '!cursor-crosshair' : ''}`} />
+    <div className="h-full w-full relative z-0">
+      <div ref={mapContainerRef} className="h-full w-full" />
     </div>
   );
 };

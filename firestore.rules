@@ -543,7 +543,7 @@ service cloud.firestore {
             'logoDataUrl', 'logoUpdatedAt', 'updatedAt'
           ])
         );
-      allow delete: if false;
+      allow delete: if isValidId(userId) && isAdmin() && userId != request.auth.uid;
     }
 
     // Subscription verification record (create by owner, approved/rejected by reviewer, resubmitted by owner if rejected)
@@ -623,7 +623,7 @@ service cloud.firestore {
             ])
           )
         );
-      allow delete: if false;
+      allow delete: if isValidId(userId) && isAdmin() && userId != request.auth.uid;
     }
 
     // Subscription referral submissions reviewed in Main Tenant & Link-Tenant Referrals view
@@ -755,7 +755,7 @@ service cloud.firestore {
             ])
           )
         );
-      allow delete: if false;
+      allow delete: if isValidId(userId) && isAdmin() && userId != request.auth.uid;
 
       // Captured face selfie, ID documents, and proof of payment files
       match /files/{fileId} {
@@ -798,11 +798,16 @@ service cloud.firestore {
           );
         allow delete: if isValidId(userId)
           && isValidId(fileId)
-          && isVerifiedUser()
-          && isOwner(userId)
           && (
-            get(/databases/$(database)/documents/userSubReferrals/$(userId)).data.status == 'rejected' ||
-            ('isFreeTrial' in get(/databases/$(database)/documents/userSubReferrals/$(userId)).data && get(/databases/$(database)/documents/userSubReferrals/$(userId)).data.isFreeTrial == true)
+            isAdmin() ||
+            (
+              isVerifiedUser()
+              && isOwner(userId)
+              && (
+                get(/databases/$(database)/documents/userSubReferrals/$(userId)).data.status == 'rejected' ||
+                ('isFreeTrial' in get(/databases/$(database)/documents/userSubReferrals/$(userId)).data && get(/databases/$(database)/documents/userSubReferrals/$(userId)).data.isFreeTrial == true)
+              )
+            )
           );
       }
     }
@@ -818,7 +823,7 @@ service cloud.firestore {
         && incoming().createdAt == request.time
         && !exists(/databases/$(database)/documents/invites/$(inviteCode));
       allow update: if false;
-      allow delete: if false;
+      allow delete: if isValidId(inviteCode) && isAdmin() && existing().ownerUid != request.auth.uid;
     }
 
     // Main tenant & approved network-tenant invite code registry
@@ -833,7 +838,7 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/invites/$(inviteCode)).data.ownerUid == request.auth.uid
         && !exists(/databases/$(database)/documents/mainTenantInvites/$(inviteCode));
       allow update: if false;
-      allow delete: if false;
+      allow delete: if isValidId(inviteCode) && isAdmin() && existing().ownerUid != request.auth.uid;
     }
 
     // Approved tenants who joined through main tenant link and share main tenant capabilities
@@ -855,7 +860,7 @@ service cloud.firestore {
           )
         );
       allow update: if false;
-      allow delete: if false;
+      allow delete: if isValidId(userId) && isAdmin();
     }
 
     // Referrer-isolated subscription proof-of-payment profit ledger for Tenant Wallet
@@ -924,7 +929,7 @@ service cloud.firestore {
             ])
           )
         );
-      allow delete: if false;
+      allow delete: if isValidId(referralUid) && isAdmin();
     }
 
     // Live user-created gig posts at exact map coordinates
@@ -1073,6 +1078,14 @@ service cloud.firestore {
       allow delete: if isValidId(itemId)
         && isVerifiedUser()
         && (isOwner(existing().sellerUid) || isAdmin());
+    }
+
+    // Artisan / Seeker profiles
+    match /seekers/{seekerId} {
+      allow get, list: if isVerifiedUser();
+      allow create: if isVerifiedUser() && isValidId(seekerId) && incoming().uid == request.auth.uid;
+      allow update: if isVerifiedUser() && isValidId(seekerId) && (existing().uid == request.auth.uid || isAdmin());
+      allow delete: if isVerifiedUser() && isValidId(seekerId) && (existing().uid == request.auth.uid || isAdmin());
     }
   }
 }

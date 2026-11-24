@@ -773,6 +773,12 @@
         "$ref": "#/entities/ItemForSale"
       },
       "description": "User-listed items for sale displayed on the map for nearby buyers."
+    },
+    "/seekers/{seekerId}": {
+      "description": "Artisan and specialist professional profiles registered for hire."
+    },
+    "/seekerHires/{hireId}": {
+      "description": "Direct hire booking requests sent between users and local seekers."
     }
   }
 }

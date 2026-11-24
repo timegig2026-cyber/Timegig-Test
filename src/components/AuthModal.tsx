@@ -1,10 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import {
   X,
   LogIn,
-  ShieldCheck,
   AlertCircle,
-  Sparkles,
   UserPlus,
   Mail,
   Lock,
@@ -12,17 +10,6 @@ import {
   EyeOff,
   CheckCircle2,
   User as UserIcon,
-  Wrench,
-  Hammer,
-  Paintbrush,
-  Scissors,
-  Ruler,
-  HardHat,
-  Briefcase,
-  PenTool,
-  Settings,
-  Compass,
-  KeyRound,
   Info,
 } from 'lucide-react';
 import {
@@ -47,66 +34,11 @@ export interface AuthCompletionPayload {
 
 interface AuthModalProps {
   isOpen: boolean;
-  invitedBy?: string | null;
   onClose: () => void;
   onAuthCompleted?: (payload: AuthCompletionPayload) => void;
 }
 
-const TOOL_ICONS = [
-  Wrench,
-  Hammer,
-  Paintbrush,
-  Scissors,
-  Ruler,
-  HardHat,
-  Briefcase,
-  PenTool,
-  Settings,
-  Compass,
-  KeyRound,
-];
-
-interface RandomToolPlacement {
-  id: string;
-  Icon: React.ElementType;
-  topPct: number;
-  leftPct: number;
-  sizeClass: string;
-  colorClass: string;
-  animClass: string;
-  delaySec: string;
-}
-
-function buildRandomToolPlacements(
-  rows: number,
-  cols: number,
-  palette: string[],
-  sizes: string[]
-): RandomToolPlacement[] {
-  const items: RandomToolPlacement[] = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const Icon = TOOL_ICONS[Math.floor(Math.random() * TOOL_ICONS.length)];
-      const cellH = 100 / rows;
-      const cellW = 100 / cols;
-      const topPct = Math.min(92, Math.max(4, r * cellH + Math.random() * (cellH * 0.72)));
-      const leftPct = Math.min(92, Math.max(4, c * cellW + Math.random() * (cellW * 0.72)));
-      items.push({
-        id: `${r}-${c}-${Math.random().toString(36).slice(2, 6)}`,
-        Icon,
-        topPct,
-        leftPct,
-        sizeClass: sizes[Math.floor(Math.random() * sizes.length)],
-        colorClass: palette[Math.floor(Math.random() * palette.length)],
-        animClass: Math.random() > 0.5 ? 'animate-float-tool-a' : 'animate-float-tool-b',
-        delaySec: `${(Math.random() * 2.5).toFixed(2)}s`,
-      });
-    }
-  }
-  return items;
-}
-
-export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthModalProps) {
+export function AuthModal({ isOpen, onClose, onAuthCompleted }: AuthModalProps) {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -117,41 +49,16 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
-  const [showAuthInfo, setShowAuthInfo] = useState(false);
-
-  const backdropTools = useMemo(
-    () =>
-      isOpen
-        ? buildRandomToolPlacements(
-            4,
-            5,
-            ['text-white/15', 'text-blue-400/20', 'text-amber-400/20', 'text-emerald-400/15'],
-            ['w-7 h-7', 'w-8 h-8', 'w-9 h-9']
-          )
-        : [],
-    [isOpen]
-  );
-
-  const cardTools = useMemo(
-    () =>
-      isOpen
-        ? buildRandomToolPlacements(
-            4,
-            4,
-            ['text-blue-600/12', 'text-slate-900/10', 'text-amber-500/15', 'text-emerald-600/12'],
-            ['w-5 h-5', 'w-6 h-6', 'w-7 h-7']
-          )
-        : [],
-    [isOpen]
-  );
+  const [showFeatureInfo, setShowFeatureInfo] = useState(false);
 
   if (!isOpen) return null;
 
-  const formatFirebaseAuthError = (err: any): string => {
-    const code = err?.code || '';
+  const formatFirebaseAuthError = (err: unknown): string => {
+    const code = (err as { code?: string })?.code || '';
+    const message = (err as { message?: string })?.message || '';
     switch (code) {
       case 'auth/email-already-in-use':
-        return 'This email is already registered. Switch to Sign In to welcome back into your account.';
+        return 'This email is already registered. Switch to Sign In to continue.';
       case 'auth/invalid-email':
         return 'Please enter a valid email address.';
       case 'auth/weak-password':
@@ -168,9 +75,9 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
         return 'Pop-up was blocked by your browser. Allow pop-ups for this site and retry.';
       case 'auth/operation-not-allowed':
       case 'auth/admin-restricted-operation':
-        return 'Email/Password login is not enabled yet in Firebase Console (Authentication → Sign-in method → Email/Password → Enable). You can enable it there or continue with Google below.';
+        return 'Email/Password sign-in is not enabled in Firebase Console. Use Google Sign-In below or enable Email/Password in Firebase Authentication.';
       default:
-        return err?.message || 'Unable to authenticate. Please try again.';
+        return message || 'Unable to authenticate. Please try again.';
     }
   };
 
@@ -227,7 +134,7 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
         });
         onClose();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setErrorMsg(formatFirebaseAuthError(err));
     } finally {
       setIsLoading(false);
@@ -247,7 +154,7 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
     try {
       await sendPasswordResetEmail(auth, trimmedEmail);
       setInfoMsg(`Password reset email sent to ${trimmedEmail}.`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setErrorMsg(formatFirebaseAuthError(err));
     } finally {
       setIsLoading(false);
@@ -268,7 +175,7 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
         isNewUser,
       });
       onClose();
-    } catch (err: any) {
+    } catch (err: unknown) {
       setErrorMsg(formatFirebaseAuthError(err));
     } finally {
       setIsLoading(false);
@@ -277,52 +184,32 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
 
   return (
     <div
-      className="fixed inset-0 z-[220] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="auth-modal-title"
       onClick={() => {
         soundEngine.playFeatureClick();
         onClose();
       }}
     >
-      {/* Random Tools Wallpaper Across Backdrop */}
-      <div aria-hidden="true" className="fixed inset-0 pointer-events-none select-none overflow-hidden">
-        {backdropTools.map(({ id, Icon, topPct, leftPct, sizeClass, colorClass, animClass, delaySec }) => (
-          <Icon
-            key={id}
-            className={`absolute ${sizeClass} ${colorClass} ${animClass}`}
-            style={{ top: `${topPct}%`, left: `${leftPct}%`, animationDelay: delaySec }}
-          />
-        ))}
-      </div>
-
       <div
-        className="relative bg-white border border-slate-200 rounded-3xl w-full max-w-md max-h-[92dvh] flex flex-col shadow-2xl overflow-hidden text-slate-950 animate-in zoom-in-95 duration-200"
+        className="relative bg-white border border-slate-200 rounded-3xl w-full max-w-md max-h-[92dvh] flex flex-col shadow-2xl overflow-hidden text-slate-950"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Random Tools Wallpaper Inside Signup/Sign-in Screen */}
-        <div aria-hidden="true" className="absolute inset-0 pointer-events-none select-none overflow-hidden z-0">
-          {cardTools.map(({ id, Icon, topPct, leftPct, sizeClass, colorClass, animClass, delaySec }) => (
-            <Icon
-              key={id}
-              className={`absolute ${sizeClass} ${colorClass} ${animClass}`}
-              style={{ top: `${topPct}%`, left: `${leftPct}%`, animationDelay: delaySec }}
-            />
-          ))}
-        </div>
-
-        {/* Clean White Header */}
-        <div className="relative z-10 p-4 sm:p-5 border-b border-slate-200/80 flex items-center justify-between bg-white/85 backdrop-blur-[2px] shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-slate-950 text-white flex items-center justify-center shadow-sm">
+        <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-white shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-11 h-11 rounded-2xl bg-slate-950 text-white flex items-center justify-center shrink-0">
               {mode === 'signup' ? <UserPlus className="w-5 h-5" /> : <LogIn className="w-5 h-5" />}
             </div>
-            <div>
-              <h2 className="text-base font-black tracking-tight text-slate-950">
-                {mode === 'signup' ? 'Create TimeGiG Account' : 'Welcome Back'}
+            <div className="min-w-0">
+              <h2 id="auth-modal-title" className="text-base font-bold tracking-tight text-slate-950 truncate">
+                {mode === 'signup' ? 'Create Account' : 'Sign In'}
               </h2>
-              <p className="text-[11px] font-medium text-slate-500">
+              <p className="text-xs text-slate-500 truncate">
                 {mode === 'signup'
-                  ? 'Sign up manually or with Google'
-                  : 'Sign in to access your TimeGiG account'}
+                  ? 'Sign up with email or Google'
+                  : 'Sign in with email or Google'}
               </p>
             </div>
           </div>
@@ -332,14 +219,12 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
               type="button"
               onClick={() => {
                 soundEngine.playFeatureClick();
-                setShowAuthInfo((prev) => !prev);
+                setShowFeatureInfo((prev) => !prev);
               }}
-              title="About TimeGiG Account Sign In"
-              aria-label="About TimeGiG Account Sign In"
-              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-                showAuthInfo
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200'
+              aria-label="Sign In feature information"
+              title="About Sign In"
+              className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors ${
+                showFeatureInfo ? 'bg-blue-600 text-white' : 'bg-blue-50 hover:bg-blue-100 text-blue-600'
               }`}
             >
               <Info className="w-4 h-4" />
@@ -350,23 +235,27 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
                 soundEngine.playFeatureClick();
                 onClose();
               }}
-              aria-label="Close sign in"
-              className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-950 flex items-center justify-center transition-all cursor-pointer"
+              aria-label="Close sign in dialog"
+              className="min-w-[44px] min-h-[44px] rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-950 flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 shrink-0"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {showAuthInfo && (
-          <div className="relative z-10 px-4 sm:px-5 py-3 bg-blue-50 border-b border-blue-200 text-[11px] font-medium text-slate-700 leading-relaxed animate-in fade-in duration-150">
-            <strong className="text-blue-900">Account Access:</strong> Create your private TimeGiG profile using email &amp; password or Google Sign-In. Once signed in, pick a Tenant or User subscription and verify your identity to post gigs, hire Seekers, and earn referral income.
-          </div>
-        )}
-
-        <div className="relative z-10 p-4 sm:p-5 space-y-4 overflow-y-auto bg-white/75 backdrop-blur-[1px]">
-          {/* Toggle Sign In / Sign Up */}
-          <div className="grid grid-cols-2 gap-1.5 bg-slate-100 p-1 rounded-xl">
+        <div className="p-5 space-y-4 overflow-y-auto bg-white">
+          {showFeatureInfo && (
+            <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-2xl text-xs text-blue-950 space-y-1 animate-in fade-in duration-150">
+              <div className="font-black flex items-center gap-1.5">
+                <Info className="w-3.5 h-3.5 text-blue-600" />
+                <span>About Sign In & Accounts</span>
+              </div>
+              <p className="leading-relaxed text-blue-900 font-medium">
+                Sign in with your email/password or Google account to post gigs, sell items, manage referrals, configure tenant settings, and track your ratings and subscriptions.
+              </p>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-1 bg-slate-100 p-1 rounded-xl">
             <button
               type="button"
               onClick={() => {
@@ -375,10 +264,10 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
                 setErrorMsg(null);
                 setInfoMsg(null);
               }}
-              className={`py-2 rounded-lg text-xs font-black transition-all cursor-pointer ${
+              className={`min-h-[44px] py-2 px-4 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                 mode === 'signin'
                   ? 'bg-white text-slate-950 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-900'
+                  : 'text-slate-600 hover:text-slate-950'
               }`}
             >
               Sign In
@@ -391,62 +280,52 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
                 setErrorMsg(null);
                 setInfoMsg(null);
               }}
-              className={`py-2 rounded-lg text-xs font-black transition-all cursor-pointer ${
+              className={`min-h-[44px] py-2 px-4 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                 mode === 'signup'
                   ? 'bg-white text-slate-950 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-900'
+                  : 'text-slate-600 hover:text-slate-950'
               }`}
             >
               Sign Up
             </button>
           </div>
 
-          {invitedBy && (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-3.5 py-2.5 flex items-center gap-2 text-xs font-bold text-emerald-950">
-              <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>
-                Invited via code <strong>{invitedBy}</strong> • <strong>30-Day Free Trial</strong> unlocked on signup!
-              </span>
-            </div>
-          )}
-
           {errorMsg && (
-            <div className="bg-rose-50 border border-rose-200 rounded-xl px-3.5 py-2.5 flex items-start gap-2 text-xs font-bold text-rose-700">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div className="bg-rose-50 border border-rose-200 rounded-xl px-3.5 py-2.5 flex items-start gap-2 text-xs font-medium text-rose-800">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
               <span>{errorMsg}</span>
             </div>
           )}
 
           {infoMsg && (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-3.5 py-2.5 flex items-start gap-2 text-xs font-bold text-emerald-800">
-              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-3.5 py-2.5 flex items-start gap-2 text-xs font-medium text-emerald-900">
+              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
               <span>{infoMsg}</span>
             </div>
           )}
 
-          {/* Manual Email & Password Form */}
           <form onSubmit={handleManualSubmit} className="space-y-3">
             {mode === 'signup' && (
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[10px] font-black text-slate-700 uppercase tracking-wide mb-1">
-                    Name
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    First Name
                   </label>
                   <div className="relative">
-                    <UserIcon className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <UserIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input
                       type="text"
                       required
                       placeholder="First name"
                       value={firstName}
                       onChange={(e) => setFirstName(e.target.value)}
-                      className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                      className="w-full min-h-[44px] pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600"
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-700 uppercase tracking-wide mb-1">
-                    Surname
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Last Name
                   </label>
                   <input
                     type="text"
@@ -454,46 +333,46 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
                     placeholder="Last name"
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    className="w-full min-h-[44px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600"
                   />
                 </div>
               </div>
             )}
 
             <div>
-              <label className="block text-[10px] font-black text-slate-700 uppercase tracking-wide mb-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Email
               </label>
               <div className="relative">
-                <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="email"
                   required
                   placeholder="you@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                  className="w-full min-h-[44px] pl-10 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600"
                 />
               </div>
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block text-[10px] font-black text-slate-700 uppercase tracking-wide">
+                <label className="block text-xs font-semibold text-slate-700">
                   Password
                 </label>
                 {mode === 'signin' && (
                   <button
                     type="button"
                     onClick={handlePasswordReset}
-                    className="text-[10px] font-bold text-blue-600 hover:text-blue-700 cursor-pointer"
+                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 cursor-pointer focus-visible:outline-none focus-visible:underline"
                   >
                     Forgot password?
                   </button>
                 )}
               </div>
               <div className="relative">
-                <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
@@ -501,26 +380,26 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
                   placeholder="Minimum 6 characters"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-9 pr-9 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                  className="w-full min-h-[44px] pl-10 pr-11 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((prev) => !prev)}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-500 hover:text-slate-800 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded-lg"
                 >
-                  {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
             {mode === 'signup' && (
               <div>
-                <label className="block text-[10px] font-black text-slate-700 uppercase tracking-wide mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Confirm Password
                 </label>
                 <div className="relative">
-                  <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type={showPassword ? 'text' : 'password'}
                     required
@@ -528,7 +407,7 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
                     placeholder="Re-enter password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    className="w-full min-h-[44px] pl-10 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600"
                   />
                 </div>
               </div>
@@ -537,7 +416,7 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-black text-xs rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+              className="w-full min-h-[46px] py-2.5 px-5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-sm rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 active:scale-[0.98]"
             >
               {mode === 'signup' ? <UserPlus className="w-4 h-4" /> : <LogIn className="w-4 h-4" />}
               <span>
@@ -552,19 +431,17 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
             </button>
           </form>
 
-          {/* Divider */}
           <div className="flex items-center gap-3">
             <div className="h-px flex-1 bg-slate-200" />
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">or</span>
+            <span className="text-xs font-medium text-slate-400">or</span>
             <div className="h-px flex-1 bg-slate-200" />
           </div>
 
-          {/* Google Sign-Up / Sign-In */}
           <button
             type="button"
             disabled={isLoading}
             onClick={handleGoogleAuth}
-            className="w-full py-3 px-4 bg-slate-950 hover:bg-slate-800 disabled:opacity-60 text-white font-black text-xs rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2.5 cursor-pointer active:scale-95"
+            className="w-full min-h-[46px] py-2.5 px-5 bg-slate-950 hover:bg-slate-800 disabled:opacity-60 text-white font-semibold text-sm rounded-xl transition-colors flex items-center justify-center gap-2.5 cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 active:scale-[0.98]"
           >
             <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
               <path
@@ -592,13 +469,6 @@ export function AuthModal({ isOpen, invitedBy, onClose, onAuthCompleted }: AuthM
                 : 'Sign In with Google'}
             </span>
           </button>
-
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-start gap-2 text-[11px] font-medium text-slate-600">
-            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-            <span>
-              Secured with Firebase Authentication. You get your own separate, private account — other users cannot see your profile, location, or activities.
-            </span>
-          </div>
         </div>
       </div>
     </div>

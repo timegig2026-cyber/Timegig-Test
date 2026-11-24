@@ -233,6 +233,49 @@ class SoundEngine {
       console.warn('Alert audio error:', e);
     }
   }
+
+  /**
+   * Cheerful, bright popup chime whenever a new gig or item post is published on the map
+   */
+  public playNewPostNotification() {
+    if (this.isMuted) return;
+    try {
+      const ctx = this.getContext();
+      if (!ctx) return;
+
+      const trigger = () => {
+        const now = ctx.currentTime;
+        // 3-tone arpeggio (C6, E6, G6) with harmonic chime
+        const notes = [1046.5, 1318.5, 1567.98];
+        notes.forEach((freq, idx) => {
+          const time = now + idx * 0.08;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, time);
+
+          gain.gain.setValueAtTime(0, time);
+          gain.gain.linearRampToValueAtTime(0.32, time + 0.015);
+          gain.gain.exponentialRampToValueAtTime(0.001, time + 0.35);
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+
+          osc.start(time);
+          osc.stop(time + 0.4);
+        });
+      };
+
+      if (ctx.state === 'suspended') {
+        ctx.resume().then(trigger).catch(() => {});
+      } else {
+        trigger();
+      }
+    } catch (e) {
+      console.warn('New post chime error:', e);
+    }
+  }
 }
 
 export const soundEngine = new SoundEngine();
